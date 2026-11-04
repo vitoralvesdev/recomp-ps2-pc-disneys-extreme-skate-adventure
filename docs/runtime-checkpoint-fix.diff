@@ -1,0 +1,57 @@
+--- upstream/ps2_runtime.cpp
++++ port/ps2_runtime.cpp
+@@ -503,8 +503,8 @@
+     m_guestHeapLimit = std::min(kGuestHeapHardLimit, PS2_RAM_SIZE);
+     m_guestHeapSuggestedBase = kGuestHeapDefaultBase;
+     m_guestHeapConfigured = false;
+-    m_asyncCallbackStackFloor = std::min(kGuestHeapHardLimit, PS2_RAM_SIZE);
+-    m_asyncCallbackStackTop = PS2_RAM_SIZE;
++    m_asyncCallbackStackFloor = 0x000c0000u;
++    m_asyncCallbackStackTop = 0x00100000u; // Below the ELF; above synthetic kernel services
+ }
+ 
+ void PS2Runtime::setDebugUiCallbacks(DebugUiCallback initCallback,
+@@ -972,8 +972,8 @@
+     {
+         std::lock_guard<std::mutex> lock(m_asyncCallbackStackMutex);
+         const uint32_t hardLimit = std::min(kGuestHeapHardLimit, PS2_RAM_SIZE);
+-        m_asyncCallbackStackFloor = std::min(std::max(hardLimit, suggestedHeapBase), PS2_RAM_SIZE);
+-        m_asyncCallbackStackTop = PS2_RAM_SIZE;
++        m_asyncCallbackStackFloor = 0x000c0000u;
++        m_asyncCallbackStackTop = 0x00100000u; // Below the ELF; above synthetic kernel services
+     }
+ 
+     LoadedModule module;
+@@ -1396,6 +1396,19 @@
+ 
+     RecompiledFunction targetFn = lookupFunction(targetPc);
+     const uint32_t entryPc = ctx->pc;
++    // Guest calls are resumable. Bound native recursion before invoking another
++    // translated function, leaving PC at the target for the EE dispatcher.
++    static thread_local unsigned guestCallDepth = 0u;
++    if (guestCallDepth >= 64u)
++    {
++        return false;
++    }
++    struct GuestCallDepthGuard
++    {
++        unsigned &depth;
++        explicit GuestCallDepthGuard(unsigned &value) : depth(value) { ++depth; }
++        ~GuestCallDepthGuard() { --depth; }
++    } depthGuard(guestCallDepth);
+     targetFn(rdram, ctx, this);
+ 
+     if (isStopRequested() || ctx->pc == 0u)
+@@ -1403,9 +1416,11 @@
+         return false;
+     }
+ 
++    // A cooperative checkpoint can yield at the callee's entry address.
++    // Generated returns and host bridges set PC explicitly; equal PC is not a return.
+     if (ctx->pc == entryPc)
+     {
+-        ctx->pc = fallthroughPc;
++        return false;
+     }
+ 
+     return ctx->pc == fallthroughPc;

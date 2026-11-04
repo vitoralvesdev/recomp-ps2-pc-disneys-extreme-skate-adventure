@@ -1,0 +1,728 @@
+INFO: Initializing raylib 5.5
+INFO: Platform backend: DESKTOP (GLFW)
+INFO: Supported raylib modules:
+INFO:     > rcore:..... loaded (mandatory)
+INFO:     > rlgl:...... loaded (mandatory)
+INFO:     > rshapes:... loaded (optional)
+INFO:     > rtextures:. loaded (optional)
+INFO:     > rtext:..... loaded (optional)
+INFO:     > rmodels:... loaded (optional)
+INFO:     > raudio:.... loaded (optional)
+INFO: DISPLAY: Device initialized successfully
+INFO:     > Display size: 1920 x 1080
+INFO:     > Screen size:  640 x 448
+INFO:     > Render size:  640 x 448
+INFO:     > Viewport offsets: 0, 0
+INFO: GLAD: OpenGL extensions loaded successfully
+INFO: GL: Supported extensions count: 404
+INFO: GL: OpenGL device information:
+INFO:     > Vendor:   NVIDIA Corporation
+INFO:     > Renderer: NVIDIA GeForce RTX 3060/PCIe/SSE2
+INFO:     > Version:  3.3.0 NVIDIA 616.56
+INFO:     > GLSL:     3.30 NVIDIA via Cg compiler
+INFO: GL: VAO extension detected, VAO functions loaded successfully
+INFO: GL: NPOT textures extension detected, full NPOT textures supported
+INFO: GL: DXT compressed textures supported
+INFO: GL: ETC2/EAC compressed textures supported
+INFO: PLATFORM: DESKTOP (GLFW - Win32): Initialized successfully
+INFO: TEXTURE: [ID 1] Texture loaded successfully (1x1 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 1] Default texture loaded successfully
+INFO: SHADER: [ID 1] Vertex shader compiled successfully
+INFO: SHADER: [ID 2] Fragment shader compiled successfully
+INFO: SHADER: [ID 3] Program shader loaded successfully
+INFO: SHADER: [ID 3] Default shader loaded successfully
+INFO: RLGL: Render batch vertex buffers loaded successfully in RAM (CPU)
+INFO: RLGL: Render batch vertex buffers loaded successfully in VRAM (GPU)
+INFO: RLGL: Default OpenGL state initialized successfully
+INFO: TEXTURE: [ID 2] Texture loaded successfully (128x128 | GRAY_ALPHA | 1 mipmaps)
+INFO: FONT: Default font loaded successfully (224 glyphs)
+INFO: SYSTEM: Working Directory: C:\Users\vitor\OneDrive\Área de Trabalho\HIGHSKY.REC\Apps\Disneys-Extreme-Skate-Adventure-port\runtime
+INFO: AUDIO: Device initialized successfully
+INFO:     > Backend:       miniaudio | WASAPI
+INFO:     > Format:        32-bit IEEE Floating Point -> 32-bit IEEE Floating Point
+INFO:     > Channels:      2 -> 2
+INFO:     > Sample rate:   44100 -> 44100
+INFO:     > Periods size:  1323
+INFO: STREAM: Initialized successfully (48000 Hz, 32 bit, Stereo)
+[native-audio] Windows output 48000 Hz stereo, 44 SFX + 2 voices + music
+INFO: TIMER: Target time per frame: 16.667 milliseconds
+[input] keyboard enabled alongside controllers
+[native-save] Windows files: "C:\\Users\\vitor\\AppData\\Local\\HighSky\\DisneysExtremeSkateAdventure\\Saves\\profile-1"
+[gs-hw] render-target renderer ready, scale 1.00 (NVIDIA GeForce RTX 3060/PCIe/SSE2)
+Loading segment: 0x100000 - 0x346ae4 (filesz: 0x246ae4, memsz: 0x246ae4)
+Registered code region: 100000 - 346ae4ELF file loaded successfully. Entry point: 0x24a618[native-renderer] ordered GPU worker thread (DISNEY_RENDERER=software disables)
+[native-save] Original libmc SDK connected to Windows filesystem
+[native-audio] Original sound events connected to Windows PCM mixer
+Starting execution at address 0x24a618INFO: TEXTURE: [ID 3] Texture loaded successfully (640x512 | R8G8B8A8 | 1 mipmaps)
+PS2 GsPutIMR:  new=0x65280 a0_64=0x65280 a0_32=0x65280 a1_32=0x65536 pc=0x3002044 ra=0x3002044
+PS2 GsSetCrt: interlaced=1, videoMode=2, frameMode=0
+allocated mp_frontend_region at 0x42b9f0
+Setup TOP_DOWN mp_network_heap at 0x4d6890
+Setup mp_frontend_heap at 0x4d6930
+allocated mp_script_region at 0x4d69d0
+Setup mp_script_heap at 0x8a9a20
+allocated mp_skater_info_region at 0x8a9ac0
+Setup mp_skater_info_heap at 0x8ad980
+allocated mp_skater_region at 0x8ada20
+Setup mp_skater_heap at 0x9a1ca0
+allocated mp_skater_geom_region at 0x9a1d40
+Setup mp_skater_geom_heap at 0xa58f30
+
+ Start of main()
+argc = 1
+ 0: cdrom0:\SLUS_206.07;1
+
+Initialising CD ...
+ sceCdGetDiskType   Disk Type= PlayStation2 DVD
+[SifInitRpc] Initialized[ps2xIOP] [IOP] loaded IRX id=1 entry=0x10634 base=0x10000 start=0
+[module] cdrom0:\IOP\SIO2MAN.IRX id=1 start=0 handled=1
+[ps2xIOP] [IOP] loaded IRX id=2 entry=0x14178 base=0x11000 start=0
+[module] cdrom0:\IOP\PADMAN.IRX id=2 start=0 handled=1
+[ps2xIOP] [IOP printf] yet sif hasn't been init
+
+[ps2xIOP] [IOP] loaded IRX id=3 entry=0x1aab0 base=0x1aa00 start=0
+[module] cdrom0:\IOP\LIBSD.IRX id=3 start=0 handled=1
+[ps2xIOP] [IOP printf] SDR driver version 4.0.1 (C) SCEI
+
+[ps2xIOP] [IOP printf]  Exit rsd_main 
+
+[ps2xIOP] [IOP] loaded IRX id=4 entry=0x20400 base=0x20400 start=0
+[module] cdrom0:\IOP\SDRDRV.IRX id=4 start=0 handled=1
+INFO: TEXTURE: [ID 3] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 3] Texture loaded successfully (640x448 | R8G8B8A8 | 1 mipmaps)
+InitNodeNameHashTable ...
+CACHING: 'CAS_BOY.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcb7c pathAddr=0x1fff9d0 path="\MOVIES\CAS_BOY.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\CAS_BOY.PSS;1" lsn=0x100000 size=0x1be8004 sectors=0x37d1
+CACHING: 'SIMBA.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcba4 pathAddr=0x1fff9d0 path="\MOVIES\SIMBA.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\SIMBA.PSS;1" lsn=0x1037d2 size=0x1900004 sectors=0x3201
+CACHING: 'RAFIKI.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcbcc pathAddr=0x1fff9d0 path="\MOVIES\RAFIKI.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\RAFIKI.PSS;1" lsn=0x1069d4 size=0x17bc004 sectors=0x2f79
+CACHING: 'TIMON.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcbf4 pathAddr=0x1fff9d0 path="\MOVIES\TIMON.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TIMON.PSS;1" lsn=0x10994e size=0x1910004 sectors=0x3221
+CACHING: 'NALA.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcc1c pathAddr=0x1fff9d0 path="\MOVIES\NALA.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\NALA.PSS;1" lsn=0x10cb70 size=0xc98004 sectors=0x1931
+CACHING: 'WOODY.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcc44 pathAddr=0x1fff9d0 path="\MOVIES\WOODY.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\WOODY.PSS;1" lsn=0x10e4a2 size=0x1360004 sectors=0x26c1
+CACHING: 'JESSIE.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcc6c pathAddr=0x1fff9d0 path="\MOVIES\JESSIE.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\JESSIE.PSS;1" lsn=0x110b64 size=0xb2c004 sectors=0x1659
+CACHING: 'BUZZ.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcc94 pathAddr=0x1fff9d0 path="\MOVIES\BUZZ.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\BUZZ.PSS;1" lsn=0x1121be size=0xb70004 sectors=0x16e1
+CACHING: 'ZURG.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fccbc pathAddr=0x1fff9d0 path="\MOVIES\ZURG.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\ZURG.PSS;1" lsn=0x1138a0 size=0xb10004 sectors=0x1621
+CACHING: 'TARZAN.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcce4 pathAddr=0x1fff9d0 path="\MOVIES\TARZAN.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TARZAN.PSS;1" lsn=0x114ec2 size=0x1558004 sectors=0x2ab1
+CACHING: 'JANE.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcd0c pathAddr=0x1fff9d0 path="\MOVIES\JANE.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\JANE.PSS;1" lsn=0x117974 size=0xae0004 sectors=0x15c1
+CACHING: 'TANTOR.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcd34 pathAddr=0x1fff9d0 path="\MOVIES\TANTOR.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TANTOR.PSS;1" lsn=0x118f36 size=0xb14004 sectors=0x1629
+CACHING: 'TERK.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcd5c pathAddr=0x1fff9d0 path="\MOVIES\TERK.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TERK.PSS;1" lsn=0x11a560 size=0xa90004 sectors=0x1521
+CACHING: 'DEMO.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcd84 pathAddr=0x1fff9d0 path="\MOVIES\DEMO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\DEMO.PSS;1" lsn=0x11ba82 size=0x4698004 sectors=0x8d31
+CACHING: 'CREDITS.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcdac pathAddr=0x1fff9d0 path="\MOVIES\CREDITS.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\CREDITS.PSS;1" lsn=0x1247b4 size=0x610c004 sectors=0xc219
+CACHING: 'TS_MOVIE.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcdd4 pathAddr=0x1fff9d0 path="\MOVIES\TS_MOVIE.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TS_MOVIE.PSS;1" lsn=0x1309ce size=0xacd0004 sectors=0x159a1
+CACHING: 'LILROMEO.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcdfc pathAddr=0x1fff9d0 path="\MOVIES\LILROMEO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\LILROMEO.PSS;1" lsn=0x146370 size=0xdf30004 sectors=0x1be61
+CACHING: 'TZ_MOVIE.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fce24 pathAddr=0x1fff9d0 path="\MOVIES\TZ_MOVIE.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TZ_MOVIE.PSS;1" lsn=0x1621d2 size=0x7a6c004 sectors=0xf4d9
+CACHING: 'SMILO.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fce4c pathAddr=0x1fff9d0 path="\MOVIES\SMILO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\SMILO.PSS;1" lsn=0x1716ac size=0x5298004 sectors=0xa531
+CACHING: 'LK_MOVIE.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fce74 pathAddr=0x1fff9d0 path="\MOVIES\LK_MOVIE.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\LK_MOVIE.PSS;1" lsn=0x17bbde size=0x9a6c004 sectors=0x134d9
+CACHING: 'JUMP5.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fce9c pathAddr=0x1fff9d0 path="\MOVIES\JUMP5.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\JUMP5.PSS;1" lsn=0x18f0b8 size=0xc4fc004 sectors=0x189f9
+CACHING: 'EXTREME.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcec4 pathAddr=0x1fff9d0 path="\MOVIES\EXTREME.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\EXTREME.PSS;1" lsn=0x1a7ab2 size=0x94e8004 sectors=0x129d1
+CACHING: 'ATVI.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fceec pathAddr=0x1fff9d0 path="\MOVIES\ATVI.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\ATVI.PSS;1" lsn=0x1ba484 size=0x664004 sectors=0xcc9
+CACHING: 'DI_LOGO.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcf14 pathAddr=0x1fff9d0 path="\MOVIES\DI_LOGO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\DI_LOGO.PSS;1" lsn=0x1bb14e size=0x894004 sectors=0x1129
+CACHING: 'TFBLOGO.PSS;1'
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcf3c pathAddr=0x1fff9d0 path="\MOVIES\TFBLOGO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\TFBLOGO.PSS;1" lsn=0x1bc278 size=0x6e4004 sectors=0xdc9
+CACHING: 'INTRO.PSS;1'
+[gs-hw] render target fbp=0 fbw=10 -> 640x512
+[gs-hw] render target fbp=80 fbw=10 -> 640x512
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x2fcf64 pathAddr=0x1fff9d0 path="\MOVIES\INTRO.PSS;1"
+[sceCdSearchFile:ok] path="\MOVIES\INTRO.PSS;1" lsn=0x1bd042 size=0x56a8004 sectors=0xad51
+[ps2xIOP] [IOP] loaded IRX id=5 entry=0x22078 base=0x21f00 start=2
+[module] cdrom0:\IOP\MCMAN.IRX id=5 start=2 handled=1
+[ps2xIOP] [IOP] loaded IRX id=6 entry=0x49258 base=0x49200 start=2
+[module] cdrom0:\IOP\MCSERV.IRX id=6 start=2 handled=1
+[ps2xIOP] [IOP printf] PCM driver version 666
+
+[ps2xIOP] [IOP printf]  Exit PCM loader thread 
+
+[ps2xIOP] [IOP] loaded IRX id=7 entry=0x4fa00 base=0x4ca00 start=0
+[module] cdrom0:\IOP\EZPCM.IRX id=7 start=0 handled=1
+Binding to EzPCM Streaming IRX...
+Binding to EzPCM High Priority Streaming IRX...
+[ps2xIOP] [IOP printf] EzADPCM: create thread ID= %d
+
+Opening SKATE4 ...
+SKATE4 opened successfully
+[gs-hw] render target fbp=0 fbw=16 -> 1024x512
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x1fffc70 pathAddr=0x1fffca0 path="\SKATE4.WAD;1"
+[sceCdSearchFile:ok] path="\SKATE4.WAD;1" lsn=0x1c7d94 size=0x6823800 sectors=0xd047
+load time for file permtex.pre size 21416 is 0 ms
+load time for file skater_sounds.pre size 601028 is 0 ms
+[native-audio] Resource not mapped: sfx/skater/wheels01
+failed to load sound Skater\wheels01sound Skater\wheels01 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bail04
+failed to load sound Skater\bail04sound Skater\bail04 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bail05
+failed to load sound Skater\bail05sound Skater\bail05 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bodysmacka
+failed to load sound Skater\bodysmackAsound Skater\bodysmackA couldn't load
+[native-audio] Resource not mapped: sfx/skater/headsmackb
+failed to load sound Skater\headsmackBsound Skater\headsmackB couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/hud_jumpgap
+failed to load sound Shared\Goals\HUD_jumpgapsound Shared\Goals\HUD_jumpgap couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/hud_specialtrickaa
+failed to load sound Shared\Goals\HUD_specialtrickAAsound Shared\Goals\HUD_specialtrickAA couldn't load
+[native-audio] Resource not mapped: sfx/shared/hits/hitdumpsterx
+failed to load sound Shared\Hits\HitDumpsterXsound Shared\Hits\HitDumpsterX couldn't load
+[native-audio] Resource not mapped: sfx/shared/hits/hitvehicle3
+failed to load sound Shared\Hits\HitVehicle3sound Shared\Hits\HitVehicle3 couldn't load
+[native-audio] Resource not mapped: sfx/skater/boardbail01
+failed to load sound Skater\boardbail01sound Skater\boardbail01 couldn't load
+[native-audio] Resource not mapped: sfx/skater/boardbail02
+failed to load sound Skater\boardbail02sound Skater\boardbail02 couldn't load
+[native-audio] Resource not mapped: sfx/skater/foleymove01
+failed to load sound Skater\foleymove01sound Skater\foleymove01 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitblood01
+failed to load sound Skater\hitblood01sound Skater\hitblood01 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitblood02
+failed to load sound Skater\hitblood02sound Skater\hitblood02 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitblood04
+failed to load sound Skater\hitblood04sound Skater\hitblood04 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitblood05
+failed to load sound Skater\hitblood05sound Skater\hitblood05 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitbody03
+failed to load sound Skater\hitbody03sound Skater\hitbody03 couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitbody04
+failed to load sound Skater\hitbody04sound Skater\hitbody04 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bail_knee1
+failed to load sound Skater\bail_knee1sound Skater\bail_knee1 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bail_backward1
+failed to load sound Skater\bail_backward1sound Skater\bail_backward1 couldn't load
+[native-audio] Resource not mapped: sfx/skater/bailrunoutflip
+failed to load sound Skater\Bailrunoutflipsound Skater\Bailrunoutflip couldn't load
+[native-audio] Resource not mapped: sfx/skater/nosemanualbail
+failed to load sound Skater\Nosemanualbailsound Skater\Nosemanualbail couldn't load
+[native-audio] Resource not mapped: sfx/skater/bitchslap2
+failed to load sound Skater\bitchslap2sound Skater\bitchslap2 couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/hudtrickslopc
+failed to load sound Shared\Goals\HUDtrickslopCsound Shared\Goals\HUDtrickslopC couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/hudtrickperfect
+failed to load sound Shared\Goals\HUDtrickperfectsound Shared\Goals\HUDtrickperfect couldn't load
+[native-audio] Resource not mapped: sfx/skater/hitbody02
+failed to load sound Skater\hitbody02sound Skater\hitbody02 couldn't load
+[native-audio] Resource not mapped: sfx/skater/olliemetalfuture
+failed to load sound Skater\OllieMetalFuturesound Skater\OllieMetalFuture couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menu05
+failed to load sound Shared\Menu\menu05sound Shared\Menu\menu05 couldn't load
+[native-audio] Resource not mapped: sfx/skater/revertwood
+failed to load sound Skater\RevertWoodsound Skater\RevertWood couldn't load
+[native-audio] Resource not mapped: sfx/skater/extratrick
+failed to load sound Skater\extratricksound Skater\extratrick couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menu03
+failed to load sound Shared\Menu\menu03sound Shared\Menu\menu03 couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/timeouta
+failed to load sound Shared\Menu\timeoutAsound Shared\Menu\timeoutA couldn't load
+[native-audio] Resource not mapped: sfx/skater/copinghit3_11
+failed to load sound Skater\copinghit3_11sound Skater\copinghit3_11 couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/gui_click06
+failed to load sound Shared\Menu\GUI_click06sound Shared\Menu\GUI_click06 couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/gui_type02
+failed to load sound Shared\Menu\GUI_type02sound Shared\Menu\GUI_type02 couldn't load
+[native-audio] Resource not mapped: sfx/shared/horsewhinny
+failed to load sound Shared\HorseWhinnysound Shared\HorseWhinny couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/gui_buzzer01
+failed to load sound Shared\Menu\GUI_buzzer01sound Shared\Menu\GUI_buzzer01 couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/gapsound
+failed to load sound Shared\Goals\GapSoundsound Shared\Goals\GapSound couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/goaldone
+failed to load sound Shared\Goals\GoalDonesound Shared\Goals\GoalDone couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/levelanimatetop
+failed to load sound Shared\Menu\LevelAnimateTopsound Shared\Menu\LevelAnimateTop couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/levelanimateleft
+failed to load sound Shared\Menu\LevelAnimateLeftsound Shared\Menu\LevelAnimateLeft couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/animatein
+failed to load sound Shared\Menu\AnimateInsound Shared\Menu\AnimateIn couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/animateout
+failed to load sound Shared\Menu\AnimateOutsound Shared\Menu\AnimateOut couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menuback
+failed to load sound Shared\Menu\MenuBacksound Shared\Menu\MenuBack couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menudown
+failed to load sound Shared\Menu\MenuDownsound Shared\Menu\MenuDown couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menuup
+failed to load sound Shared\Menu\MenuUpsound Shared\Menu\MenuUp couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/menuselect
+failed to load sound Shared\Menu\MenuSelectsound Shared\Menu\MenuSelect couldn't load
+[native-audio] Resource not mapped: sfx/shared/menu/gotoloadlevel
+failed to load sound Shared\Menu\GoToLoadLevelsound Shared\Menu\GoToLoadLevel couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/tetrisaway
+failed to load sound Shared\Goals\TetrisAwaysound Shared\Goals\TetrisAway couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/goalgood
+failed to load sound Shared\Goals\GoalGoodsound Shared\Goals\GoalGood couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/goalfail
+failed to load sound Shared\Goals\GoalFailsound Shared\Goals\GoalFail couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/goalmidgood
+failed to load sound Shared\Goals\GoalMidGoodsound Shared\Goals\GoalMidGood couldn't load
+[native-audio] Resource not mapped: sfx/shared/goals/cash
+failed to load sound Shared\Goals\Cashsound Shared\Goals\Cash couldn't load
+MUSIC\MUSIC opened successfully
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x1fff930 pathAddr=0x1fff830 path="\MUSIC\MUSIC.WAD;1"
+[sceCdSearchFile:ok] path="\MUSIC\MUSIC.WAD;1" lsn=0x1d4ddc size=0x13cb0000 sectors=0x27960
+load time for file skeletons.pre size 20992 is 0 ms
+load time for file bits.pre size 51936 is 0 ms
+STREAMS\STREAMS opened successfully
+[sceCdSearchFile] pc=0x2cdfb0 ra=0x2cdfb0 file=0x1fff930 pathAddr=0x1fff830 path="\STREAMS\STREAMS.WAD;1"
+[sceCdSearchFile:ok] path="\STREAMS\STREAMS.WAD;1" lsn=0x1fc73d size=0x218a800 sectors=0x4315
+about to load pip file models\arrow\arrow.geom.PS2 0
+about to load pip file models\HUD_arrow\HUD_arrow.geom.PS2 0
+about to load pip file models\ped_shadow\ped_shadow.geom.PS2 0
+about to load pip file models\goalarrow\goalarrow.geom.PS2 0
+load time for file panelsprites.pre size 129992 is 0 ms
+replace_handlers to take away start key in load_level
+Creating shift input handlers
+)*********************** cleanup_before_loading_level
+Skate::Cleanup() - Deleting all session specific objects
+Anim cache is empty!
+unloading assman tables ...........
+done unloading assman ...........
+Starting to unload Geometry from the engine .....
+Done unloading Geometry from the engine .....
+Clean up without preserve skaters
+Bottom up fragmenation after cleanup is 16 - 10,000 is excessiveTop down fragmenation after cleanup is 0 - 10,000 is excessive************ CLEANING UP SYSTEM ***************
+replace_handlers to take away start key in load_level
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+setting score degradation to 0
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+Init Skater Heaps
+EXTRA: allocated mp_skater_region at 0xc6f5b0
+EXTRA: Setup mp_skater_heap at 0xd63830
+EXTRA: allocated mp_skater_region at 0xd638d0
+EXTRA: Setup mp_skater_geom_heap at 0xe1aac0
+END Init Skater Heaps
+load time for file hubpanel.pre size 159512 is 0 ms
+[gs-hw] render target fbp=140 fbw=10 -> 640x512
+load time for file bits.pre size 51936 is 0 ms
+load time for file skateshopscn.pre size 1227196 is 0 ms
+Loading Scene skateshop ...... done
+load time for file skateshop.pre size 955860 is 17 ms
+about to load pip file models\levels\skateshop\thps4board_01\thps4board_01.geom.PS2 0
+[native-audio] Resource not mapped: sfx/terrains/rollconcsmooth_short
+sound Terrains\rollConcSmooth_short couldn't load
+[native-audio] Resource not mapped: sfx/terrains/ollieconc
+sound Terrains\OllieConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landconc
+sound Terrains\LandConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindconc
+sound Terrains\GrindConc couldn't load
+[native-audio] Resource not mapped: sfx/skater/revertconc
+sound Skater\RevertConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliemetal
+sound Terrains\OllieMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landmetal
+sound Terrains\LandMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindmetal
+sound Terrains\GrindMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindmetalon
+sound Terrains\GrindMetalOn couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindmetaloff
+sound Terrains\GrindMetalOff couldn't load
+[native-audio] Resource not mapped: sfx/skater/revertmetal
+sound Skater\RevertMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollwood
+sound Terrains\RollWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliewood
+sound Terrains\OllieWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landwood3
+sound Terrains\LandWood3 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/bonkwood
+sound Terrains\BonkWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindwoodrailing_short
+sound Terrains\GrindWoodRailing_short couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindwoodoff_pr_02
+sound Terrains\GrindWoodOff_pr_02 couldn't load
+sound Skater\RevertWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollcloth_02_short
+sound Terrains\RollCloth_02_short couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliecloth_pr_01
+sound Terrains\OllieCloth_pr_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landcloth_01
+sound Terrains\LandCloth_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindtent_01
+sound Terrains\grindTent_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindtentoff_01
+sound Terrains\grindTentOff_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindtenton_01
+sound Terrains\grindTentOn_01 couldn't load
+sound Skater\RevertWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollpaper_thin_01
+sound Terrains\rollPaper_Thin_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliepaper
+sound Terrains\olliePaper couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landpaper_01
+sound Terrains\landPaper_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindstiffpaper_01
+sound Terrains\grindStiffPaper_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindpaperoff_01
+sound Terrains\grindPaperOff_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindpaperon_03
+sound Terrains\grindPaperOn_03 couldn't load
+load time for file skateshopped.pre size 2776696 is 17 ms
+about to load pip file models\crown\crown.geom.PS2 0
+hide collect 25
+load time for file skaterparts.pre size 3757296 is 0 ms
+starting standard gameflow
+WARNING: ScriptAllowPause is STUBBED
+RENDERING FRAME WITH NO CAMERA (Nothing rendered)
+[gs-hw] render target fbp=210 fbw=10 -> 640x512
+Adding shift input handlers
+)RENDERING FRAME WITH NO CAMERA (Nothing rendered)
+*************** SHOWING PANEL STUFF *********************
+*************** HIDING PANEL STUFF 2 *********************
+s_server_logic_code is 0x1f9ef8
+s_display_code is 0x1fb1a0
+s_input_logic_code is 0x1f9b00
+&&&&&&&&&&&&&&&&&&&&&&&&&& UpdateSkaterInputHandlers called
+found local skater 0 - binding to controller 0
+load time for file anims_kid.pre size 406016 is 0 ms
+Clearing skaters flags ==============
+[gs-hw] render target fbp=496 fbw=4 -> 256x512
+WARNING: ScriptAllowPause is STUBBED
+14885: Flipping regular guy
+Clearing skaters flags ==============
+Setting animation flipped to 1 in SkipToRestart
+Clearing skaters flags ==============
+starting a run....skip tracks and crank up the music
+Name            Used  Frag  Free   Blocks    - Region
+--------------- ----- ----- ------ ------    --------
+    Top Down:  5042K    0K 5096K     598   - 0x00425E00 - DN
+    BottomUp: 18318K    0K 5096K    3967   - 0x00425E00 - UP
+     Network:    95K    0K  579K     249   - 0x0042BA20 - DN
+    FrontEnd:     8K    0K  579K      39   - 0x0042BA20 - UP
+      Script:  3544K   46K  325K    4508   - 0x004D6A00 - UP
+    skt_info:     3K    0K   11K      38   - 0x008A9AF0 - UP
+      skater:   457K    0K  519K     931   - 0x008ADA50 - UP
+ skater_geom:   317K    0K  414K      44   - 0x009A1D70 - UP
+     skaterX:     0K    0K  976K       0   - 0x00C6F5E0 - UP
+ skaterGeomX:     0K    0K  732K       0   - 0x00D63900 - UP
+
+Sound mem free 1856 K  (1900687 bytes)
+
+Script pool usage:
+CStruct: 5709 of 13000
+CComponent: 26072 of 70000
+CSymbolTableEntry: 4305 of 6000
+CVector: 1133 of 8000
+CPair: 300 of 1000
+CArray: 805 of 5000
+CScript: 23 of 210
+[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0number of lines = 30
+WARNING: ScriptAllowPause is STUBBED
+[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetDir port=0 '*' maxent=32 -> result=3[MC] Sync cmd=13 result=3[MC] Sync cmd=2 result=-4[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0[MC] GetInfo port=0 type=2 free=8192 format=1 result=0[MC] Sync cmd=1 result=0mark_first_input_received
+attempting to bind skater 0 to controller 0
+&&&&&&&&&&&&&&&&&&&&&&&&&& UpdateSkaterInputHandlers called
+found local skater 0 - binding to controller 0
+Resetting skater profile number
+hide collect 25
+********** CHANGING GAME MODE TO CAREER
+************ SHOULD BREAK
+************ IN GAMEFLOW_WAITEND
+attempting to bind skater 0 to controller 0
+&&&&&&&&&&&&&&&&&&&&&&&&&& UpdateSkaterInputHandlers called
+found local skater 0 - binding to controller 0
+attempting to bind front end 0 to controller 0
+hide collect 25
+show collect 25
+************ CLEANING UP SYSTEM ***************
+-----------------------------------------Skate::ChangeLevel(-2036353674)
+Skate::Cleanup() - Deleting all session specific objects
+14885: Flipping regular guy
+Clearing skaters flags ==============
+Anim cache is empty!
+unloading assman tables ...........
+done unloading assman ...........
+Starting to unload Geometry from the engine .....
+Done unloading Geometry from the engine .....
+Clean up without preserve skaters
+DELETING SKATER HEAP 1
+DELETING SKATER GEOM HEAP 1
+Bottom up fragmenation after cleanup is 16 - 10,000 is excessiveTop down fragmenation after cleanup is 0 - 10,000 is excessive************ CLEANING UP SYSTEM ***************
+replace_handlers to take away start key in load_level
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+setting score degradation to 0
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+load time for file toystory.pre size 126144 is 0 ms
+load time for file bits.pre size 51936 is 0 ms
+load time for file ToyStory_Bedroomscn.pre size 2242180 is 0 ms
+Loading Scene ToyStory_Bedroom ...... done
+load time for file ToyStory_Bedroom.pre size 2004268 is 0 ms
+about to load pip file models\gameobjects\skate\letter_s\letter_s.geom.PS2 0
+about to load pip file models\gameobjects\skate\letter_k\letter_k.geom.PS2 0
+about to load pip file models\gameobjects\skate\letter_a\letter_a.geom.PS2 0
+about to load pip file models\gameobjects\skate\letter_t\letter_t.geom.PS2 0
+about to load pip file models\gameobjects\skate\letter_e\letter_e.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_collect_woody\goal_collect_woody.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_collect_Zurg\goal_collect_zurg.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_collect_Buzz\goal_collect_Buzz.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_collect_Jessie\goal_collect_Jessie.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_super_toystory\goal_super_toystory.geom.PS2 0
+about to load pip file models\DisneyGameObjects\ToyStory\goal_collect_kid\goal_collect_kid.geom.PS2 0
+about to load pip file models\levels\toystory_bedroom\veh_transAM\veh_transAM.geom.PS2 0
+about to load pip file models\levels\toystory_bedroom\veh_Viper\veh_Viper.geom.PS2 0
+about to load pip file models\levels\toystory_bedroom\veh_VWBug\veh_VWBug.geom.PS2 0
+about to load pip file models\DisneyGameObjects\Stats\goal_stat_speed\goal_stat_speed.geom.PS2 0
+about to load pip file models\DisneyGameObjects\Stats\goal_stat_balance\goal_stat_balance.geom.PS2 0
+about to load pip file models\DisneyGameObjects\Stats\goal_stat_trick\goal_stat_trick.geom.PS2 0
+about to load pip file models\DisneyGameObjects\Stats\goal_stat_ollie\goal_stat_ollie.geom.PS2 0
+about to load pip file models\DisneyGameObjects\Stats\goal_stat_spin\goal_stat_spin.geom.PS2 0
+sound Terrains\rollConcSmooth_short couldn't load
+sound Terrains\OllieConc couldn't load
+sound Terrains\LandConc couldn't load
+sound Terrains\GrindConc couldn't load
+sound Skater\RevertConc couldn't load
+sound Terrains\OllieMetal couldn't load
+sound Terrains\LandMetal couldn't load
+sound Terrains\GrindMetal couldn't load
+sound Terrains\GrindMetalOn couldn't load
+sound Terrains\GrindMetalOff couldn't load
+sound Skater\RevertMetal couldn't load
+sound Terrains\rollConcSmooth_short couldn't load
+sound Terrains\OllieConc couldn't load
+sound Terrains\LandConc couldn't load
+sound Terrains\GrindConc couldn't load
+sound Skater\RevertConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollmetalsmooth_11
+sound Terrains\RollMetalSmooth_11 couldn't load
+sound Terrains\OllieMetal couldn't load
+sound Terrains\LandMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/bonkmetal_11
+sound Terrains\BonkMetal_11 couldn't load
+sound Terrains\GrindMetal couldn't load
+sound Terrains\GrindMetalOn couldn't load
+sound Terrains\GrindMetalOff couldn't load
+sound Skater\RevertMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollmetalgrating_pr_01
+sound Terrains\RollMetalGrating_pr_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliemetalcage_01
+sound Terrains\OllieMetalCage_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landcage_pr_01
+sound Terrains\LandCage_pr_01 couldn't load
+sound Terrains\BonkMetal_11 couldn't load
+sound Skater\RevertMetal couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollmetaltin
+sound Terrains\RollMetalTin couldn't load
+sound Terrains\OllieMetal couldn't load
+sound Terrains\LandMetal couldn't load
+sound Terrains\BonkMetal_11 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindmetalsmall_01
+sound Terrains\grindMetalSmall_01 couldn't load
+sound Skater\RevertMetal couldn't load
+sound Terrains\RollWood couldn't load
+sound Terrains\OllieWood couldn't load
+sound Terrains\LandWood3 couldn't load
+sound Terrains\BonkWood couldn't load
+sound Terrains\GrindWoodRailing_short couldn't load
+sound Terrains\GrindWoodOff_pr_02 couldn't load
+sound Skater\RevertWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rolltile_short
+sound Terrains\RollTile_short couldn't load
+[native-audio] Resource not mapped: sfx/terrains/ollieceramic_01_verb
+sound Terrains\OllieCeramic_01_verb couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landceramic_01
+sound Terrains\LandCeramic_01 couldn't load
+sound Skater\RevertConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollcardboard_01
+sound Terrains\rollCardboard_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/olliecardboard_01
+sound Terrains\ollieCardboard_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landcardboard_02
+sound Terrains\landCardboard_02 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindcardboard_02
+sound Terrains\grindCardboard_02 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindcardboardon_01
+sound Terrains\grindCardboardOn_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindcardboardoff_02
+sound Terrains\grindCardboardOff_02 couldn't load
+sound Skater\RevertConc couldn't load
+sound Terrains\RollCloth_02_short couldn't load
+sound Terrains\OllieCloth_pr_01 couldn't load
+sound Terrains\LandCloth_01 couldn't load
+sound Terrains\grindTent_01 couldn't load
+sound Terrains\grindTentOff_01 couldn't load
+sound Terrains\grindTentOn_01 couldn't load
+sound Skater\RevertWood couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollsmoothplastic_short
+sound Terrains\rollsmoothplastic_short couldn't load
+[native-audio] Resource not mapped: sfx/terrains/ollieplastic_02
+sound Terrains\olliePlastic_02 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landplastic_01
+sound Terrains\landPlastic_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindplastic_01b
+sound Terrains\grindPlastic_01b couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindplasticoff_03
+sound Terrains\grindPlasticOff_03 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindplastic_on_01
+sound Terrains\grindPlastic_on_01 couldn't load
+sound Skater\RevertConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindedgeon_01
+sound Terrains\grindedgeon_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindedgeoff_01
+sound Terrains\grindedgeoff_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindsnareedge_01
+sound Terrains\grindsnareedge_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grinddrumoff_pr_01
+sound Terrains\grindDrumOff_pr_01 couldn't load
+sound Terrains\rollPaper_Thin_01 couldn't load
+sound Terrains\olliePaper couldn't load
+sound Terrains\landPaper_01 couldn't load
+sound Terrains\grindStiffPaper_01 couldn't load
+sound Terrains\grindPaperOff_01 couldn't load
+sound Terrains\grindPaperOn_03 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindcrystal_01b
+sound Terrains\grindCrystal_01b couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindporcon_01
+sound Terrains\grindPorcOn_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindporceleanoff_pr_2
+sound Terrains\grindPorceleanOff_pr_2 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/rollporcelean_01
+sound Terrains\rollporcelean_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/landporcelean_01
+sound Terrains\landPorcelean_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/ollieporcelean_02
+sound Terrains\olliePorcelean_02 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/bonkporcelean_pr_01
+sound Terrains\bonkPorcelean_pr_01 couldn't load
+sound Skater\RevertConc couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindrope
+sound Terrains\GrindRope couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindropeoff_pr_01
+sound Terrains\GrindRopeOff_pr_01 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindsnaketoy_02
+sound Terrains\grindSnakeToy_02 couldn't load
+[native-audio] Resource not mapped: sfx/terrains/grindplastic_off_01
+sound Terrains\grindPlastic_Off_01 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/logtumble
+sound toystory_bedroom\logtumble couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/globe_squeak_03
+sound toystory_bedroom\globe_squeak_03 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/lightswitch
+sound toystory_bedroom\LightSwitch couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/carhorn2
+sound toystory_bedroom\CarHorn2 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/dominocheckpoint_03b
+sound toystory_bedroom\DominoCheckpoint_03b couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/chestlatch_creakopen
+sound toystory_bedroom\chestLatch_CreakOpen couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/showerstarting_01
+sound toystory_bedroom\showerstarting_01 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/snareroll_short
+sound toystory_bedroom\snareroll_short couldn't load
+[native-audio] Resource not mapped: sfx/shared/flush2_11
+sound shared\flush2_11 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/faucet
+sound toystory_bedroom\faucet couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/faucetcreak1
+sound toystory_bedroom\faucetCreak1 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/faucetcreak2
+sound toystory_bedroom\faucetCreak2 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/globecrakopen_02
+sound toystory_bedroom\GlobeCrakOpen_02 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/globebounce_02
+sound toystory_bedroom\GlobeBounce_02 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/airventopen_01
+sound toystory_bedroom\AirVentOpen_01 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/dominobonk
+sound toystory_bedroom\dominoBonk couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/gruntarmy1
+sound toystory_bedroom\GruntArmy1 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/gruntarmy2
+sound toystory_bedroom\GruntArmy2 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/gruntarmy3
+sound toystory_bedroom\GruntArmy3 couldn't load
+[native-audio] Resource not mapped: sfx/toystory_bedroom/slidearmy
+sound toystory_bedroom\SlideArmy couldn't load
+load time for file ToyStory_Bedroomped.pre size 466932 is 0 ms
+CAREER_STARTED
+show collect 25
+14885: Flipping regular guy
+load time for file anims_woody.pre size 750188 is 17 ms
+Clearing skaters flags ==============
+Setting animation flipped to 1 in SkipToRestart
+starting standard gameflow
+WARNING: ScriptAllowPause is STUBBED
+WARNING: ScriptAllowPause is STUBBED
+14885: Flipping regular guy
+Clearing skaters flags ==============
+Setting animation flipped to 1 in SkipToRestart
+starting a run....skip tracks and crank up the music
+Name            Used  Frag  Free   Blocks    - Region
+--------------- ----- ----- ------ ------    --------
+    Top Down:  1396K    0K 10927K       6   - 0x00425E00 - DN
+    BottomUp: 16129K    2K 10927K    6165   - 0x00425E00 - UP
+     Network:    94K    0K  564K     234   - 0x0042BA20 - DN
+    FrontEnd:    23K    0K  564K      65   - 0x0042BA20 - UP
+      Script:  3568K   40K  307K    4678   - 0x004D6A00 - UP
+    skt_info:     3K    0K   11K      38   - 0x008A9AF0 - UP
+      skater:   476K    0K  500K     896   - 0x008ADA50 - UP
+ skater_geom:   473K    0K  258K      49   - 0x009A1D70 - UP
+
+Sound mem free 1856 K  (1900687 bytes)
+
+Script pool usage:
+CStruct: 7731 of 13000
+CComponent: 43662 of 70000
+CSymbolTableEntry: 4495 of 6000
+CVector: 4035 of 8000
+CPair: 300 of 1000
+CArray: 2176 of 5000
+CScript: 38 of 210
+Clearing skaters flags ==============
+WARNING: ScriptAllowPause is STUBBED
+************ SHOULD BREAK
+************ IN GAMEFLOW_WAITEND
+Speech_box_exit
+length: old record - 0, new record - 1
+points: old record - 0, new record - 114
+DOING A TRICK
+length: old record - 0, new record - 1
+points: old record - 0, new record - 150
+-------------------- PAUSING GAME ----------------------
+[run] window close requested, breaking out of loopGame thread returned. PC=0x153964 RA=0x153a30
+INFO: TEXTURE: [ID 3] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 2] Unloaded texture data from VRAM (GPU)
+INFO: SHADER: [ID 3] Default shader unloaded successfully
+INFO: TEXTURE: [ID 1] Default texture unloaded successfully
+INFO: Window closed successfully
+[run] exiting loop

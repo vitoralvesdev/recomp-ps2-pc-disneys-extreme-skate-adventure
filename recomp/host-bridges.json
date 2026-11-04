@@ -1,0 +1,460 @@
+{
+  "edition": "SLUS_206.07 USA",
+  "evidence": "SDK signatures from initial.toml; functional runtime handlers only",
+  "excludedSources": [
+    "FUN_002c4628_0x2c4628.cpp",
+    "FUN_002c4768_0x2c4768.cpp",
+    "FUN_002c4808_0x2c4808.cpp",
+    "FUN_002c4888_0x2c4888.cpp",
+    "FUN_002c4a70_0x2c4a70.cpp",
+    "FUN_002c4b28_0x2c4b28.cpp",
+    "FUN_002c4bd8_0x2c4bd8.cpp",
+    "FUN_002c4c58_0x2c4c58.cpp",
+    "FUN_002c4d08_0x2c4d08.cpp",
+    "FUN_002c4d70_0x2c4d70.cpp",
+    "FUN_002c4df8_0x2c4df8.cpp",
+    "FUN_002c5038_0x2c5038.cpp",
+    "FUN_002c5170_0x2c5170.cpp",
+    "FUN_002c5228_0x2c5228.cpp",
+    "FUN_002c52e8_0x2c52e8.cpp",
+    "FUN_002c53c0_0x2c53c0.cpp",
+    "FUN_002c5478_0x2c5478.cpp",
+    "FUN_002c5528_0x2c5528.cpp",
+    "FUN_002c5588_0x2c5588.cpp",
+    "FUN_002c55e0_0x2c55e0.cpp",
+    "FUN_002c5638_0x2c5638.cpp",
+    "FUN_002c5708_0x2c5708.cpp",
+    "FUN_002c5770_0x2c5770.cpp",
+    "FUN_002c57d8_0x2c57d8.cpp",
+    "FUN_002c5840_0x2c5840.cpp",
+    "FUN_002c5f28_0x2c5f28.cpp",
+    "FUN_002c61c0_0x2c61c0.cpp",
+    "FUN_002c61f8_0x2c61f8.cpp",
+    "FUN_002c6480_0x2c6480.cpp",
+    "FUN_002c6600_0x2c6600.cpp",
+    "FUN_002c6838_0x2c6838.cpp",
+    "FUN_002c6a98_0x2c6a98.cpp",
+    "FUN_002c6d58_0x2c6d58.cpp",
+    "FUN_002cd648_0x2cd648.cpp",
+    "FUN_002cd6b0_0x2cd6b0.cpp",
+    "FUN_002cdc88_0x2cdc88.cpp",
+    "FUN_002ce130_0x2ce130.cpp",
+    "FUN_002ce1c8_0x2ce1c8.cpp",
+    "FUN_002ce268_0x2ce268.cpp",
+    "FUN_002ce448_0x2ce448.cpp",
+    "FUN_002ce728_0x2ce728.cpp",
+    "FUN_002ce910_0x2ce910.cpp",
+    "FUN_002ce9e0_0x2ce9e0.cpp",
+    "FUN_002cebc0_0x2cebc0.cpp",
+    "FUN_002cf300_0x2cf300.cpp",
+    "FUN_002cf4d0_0x2cf4d0.cpp",
+    "FUN_002cf6c0_0x2cf6c0.cpp",
+    "FUN_002d0280_0x2d0280.cpp",
+    "FUN_002d0330_0x2d0330.cpp",
+    "FUN_002d0588_0x2d0588.cpp",
+    "FUN_002d06d0_0x2d06d0.cpp",
+    "FUN_002d0728_0x2d0728.cpp",
+    "FUN_002d0780_0x2d0780.cpp",
+    "FUN_002d0db8_0x2d0db8.cpp",
+    "FUN_002d10a8_0x2d10a8.cpp",
+    "FUN_002d13c0_0x2d13c0.cpp",
+    "FUN_002d1c28_0x2d1c28.cpp",
+    "FUN_002d1ce0_0x2d1ce0.cpp",
+    "FUN_002d1fc0_0x2d1fc0.cpp",
+    "FUN_002d1ff0_0x2d1ff0.cpp",
+    "FUN_002d2028_0x2d2028.cpp",
+    "FUN_002d2058_0x2d2058.cpp",
+    "FUN_002d2088_0x2d2088.cpp",
+    "FUN_002d20c0_0x2d20c0.cpp",
+    "FUN_002d2248_0x2d2248.cpp",
+    "FUN_002d2298_0x2d2298.cpp",
+    "FUN_002d22f0_0x2d22f0.cpp",
+    "FUN_002d2338_0x2d2338.cpp",
+    "FUN_002d24a0_0x2d24a0.cpp",
+    "FUN_002d2608_0x2d2608.cpp",
+    "FUN_002d2640_0x2d2640.cpp",
+    "FUN_002d2a18_0x2d2a18.cpp",
+    "FUN_002d5438_0x2d5438.cpp",
+    "FUN_002d6730_0x2d6730.cpp",
+    "FUN_002d7100_0x2d7100.cpp",
+    "FUN_002d7710_0x2d7710.cpp",
+    "FUN_002d88e0_0x2d88e0.cpp",
+    "FUN_002d8968_0x2d8968.cpp",
+    "FUN_002d8af0_0x2d8af0.cpp",
+    "FUN_002dc590_0x2dc590.cpp",
+    "FUN_002dc7b0_0x2dc7b0.cpp",
+    "FUN_002e9818_0x2e9818.cpp"
+  ],
+  "platformBindings": [
+    {
+      "file": "FUN_002c4628_0x2c4628.cpp",
+      "handler": "scePadInit",
+      "address": "0x2c4628"
+    },
+    {
+      "file": "FUN_002c4768_0x2c4768.cpp",
+      "handler": "scePadInit2",
+      "address": "0x2c4768"
+    },
+    {
+      "file": "FUN_002c4808_0x2c4808.cpp",
+      "handler": "scePadEnd",
+      "address": "0x2c4808"
+    },
+    {
+      "file": "FUN_002c4888_0x2c4888.cpp",
+      "handler": "scePadPortOpen",
+      "address": "0x2c4888"
+    },
+    {
+      "file": "FUN_002c4a70_0x2c4a70.cpp",
+      "handler": "scePadPortClose",
+      "address": "0x2c4a70"
+    },
+    {
+      "file": "FUN_002c4b28_0x2c4b28.cpp",
+      "handler": "scePadGetDmaStr",
+      "address": "0x2c4b28"
+    },
+    {
+      "file": "FUN_002c4bd8_0x2c4bd8.cpp",
+      "handler": "scePadRead",
+      "address": "0x2c4bd8"
+    },
+    {
+      "file": "FUN_002c4c58_0x2c4c58.cpp",
+      "handler": "scePadGetState",
+      "address": "0x2c4c58"
+    },
+    {
+      "file": "FUN_002c4d08_0x2c4d08.cpp",
+      "handler": "scePadSetReqState",
+      "address": "0x2c4d08"
+    },
+    {
+      "file": "FUN_002c4d70_0x2c4d70.cpp",
+      "handler": "scePadGetReqState",
+      "address": "0x2c4d70"
+    },
+    {
+      "file": "FUN_002c4df8_0x2c4df8.cpp",
+      "handler": "scePadInfoAct",
+      "address": "0x2c4df8"
+    },
+    {
+      "file": "FUN_002c5038_0x2c5038.cpp",
+      "handler": "scePadInfoMode",
+      "address": "0x2c5038"
+    },
+    {
+      "file": "FUN_002c5170_0x2c5170.cpp",
+      "handler": "scePadSetMainMode",
+      "address": "0x2c5170"
+    },
+    {
+      "file": "FUN_002c5228_0x2c5228.cpp",
+      "handler": "scePadSetActDirect",
+      "address": "0x2c5228"
+    },
+    {
+      "file": "FUN_002c52e8_0x2c52e8.cpp",
+      "handler": "scePadSetActAlign",
+      "address": "0x2c52e8"
+    },
+    {
+      "file": "FUN_002c53c0_0x2c53c0.cpp",
+      "handler": "scePadGetButtonMask",
+      "address": "0x2c53c0"
+    },
+    {
+      "file": "FUN_002c5478_0x2c5478.cpp",
+      "handler": "scePadSetButtonInfo",
+      "address": "0x2c5478"
+    },
+    {
+      "file": "FUN_002c5528_0x2c5528.cpp",
+      "handler": "scePadInfoPressMode",
+      "address": "0x2c5528"
+    },
+    {
+      "file": "FUN_002c5588_0x2c5588.cpp",
+      "handler": "scePadEnterPressMode",
+      "address": "0x2c5588"
+    },
+    {
+      "file": "FUN_002c55e0_0x2c55e0.cpp",
+      "handler": "scePadExitPressMode",
+      "address": "0x2c55e0"
+    },
+    {
+      "file": "FUN_002c5638_0x2c5638.cpp",
+      "handler": "scePadSetVrefParam",
+      "address": "0x2c5638"
+    },
+    {
+      "file": "FUN_002c5708_0x2c5708.cpp",
+      "handler": "scePadGetPortMax",
+      "address": "0x2c5708"
+    },
+    {
+      "file": "FUN_002c5770_0x2c5770.cpp",
+      "handler": "scePadGetSlotMax",
+      "address": "0x2c5770"
+    },
+    {
+      "file": "FUN_002c57d8_0x2c57d8.cpp",
+      "handler": "scePadGetModVersion",
+      "address": "0x2c57d8"
+    },
+    {
+      "file": "FUN_002c5840_0x2c5840.cpp",
+      "handler": "scePadSetWarningLevel",
+      "address": "0x2c5840"
+    },
+    {
+      "file": "FUN_002c5f28_0x2c5f28.cpp",
+      "handler": "sceFsInit",
+      "address": "0x2c5f28"
+    },
+    {
+      "file": "FUN_002c61c0_0x2c61c0.cpp",
+      "handler": "sceFsReset",
+      "address": "0x2c61c0"
+    },
+    {
+      "file": "FUN_002c61f8_0x2c61f8.cpp",
+      "handler": "sceOpen",
+      "address": "0x2c61f8"
+    },
+    {
+      "file": "FUN_002c6480_0x2c6480.cpp",
+      "handler": "sceClose",
+      "address": "0x2c6480"
+    },
+    {
+      "file": "FUN_002c6600_0x2c6600.cpp",
+      "handler": "sceLseek",
+      "address": "0x2c6600"
+    },
+    {
+      "file": "FUN_002c6838_0x2c6838.cpp",
+      "handler": "sceRead",
+      "address": "0x2c6838"
+    },
+    {
+      "file": "FUN_002c6a98_0x2c6a98.cpp",
+      "handler": "sceWrite",
+      "address": "0x2c6a98"
+    },
+    {
+      "file": "FUN_002c6d58_0x2c6d58.cpp",
+      "handler": "sceIoctl",
+      "address": "0x2c6d58"
+    },
+    {
+      "file": "FUN_002cd648_0x2cd648.cpp",
+      "handler": "sceCdDelayThread",
+      "address": "0x2cd648"
+    },
+    {
+      "file": "FUN_002cd6b0_0x2cd6b0.cpp",
+      "handler": "sceCdCallback",
+      "address": "0x2cd6b0"
+    },
+    {
+      "file": "FUN_002ce130_0x2ce130.cpp",
+      "handler": "sceCdNcmdDiskReady",
+      "address": "0x2ce130"
+    },
+    {
+      "file": "FUN_002ce1c8_0x2ce1c8.cpp",
+      "handler": "sceCdSync",
+      "address": "0x2ce1c8"
+    },
+    {
+      "file": "FUN_002ce268_0x2ce268.cpp",
+      "handler": "sceCdSyncS",
+      "address": "0x2ce268"
+    },
+    {
+      "file": "FUN_002ce448_0x2ce448.cpp",
+      "handler": "sceCdInit",
+      "address": "0x2ce448"
+    },
+    {
+      "file": "FUN_002ce728_0x2ce728.cpp",
+      "handler": "sceCdDiskReady",
+      "address": "0x2ce728"
+    },
+    {
+      "file": "FUN_002ce910_0x2ce910.cpp",
+      "handler": "sceCdMmode",
+      "address": "0x2ce910"
+    },
+    {
+      "file": "FUN_002ce9e0_0x2ce9e0.cpp",
+      "handler": "sceCdRead",
+      "address": "0x2ce9e0"
+    },
+    {
+      "file": "FUN_002d0280_0x2d0280.cpp",
+      "handler": "sceMpegInit",
+      "address": "0x2d0280"
+    },
+    {
+      "file": "FUN_002d0330_0x2d0330.cpp",
+      "handler": "sceMpegCreate",
+      "address": "0x2d0330"
+    },
+    {
+      "file": "FUN_002d0588_0x2d0588.cpp",
+      "handler": "sceMpegGetPicture",
+      "address": "0x2d0588"
+    },
+    {
+      "file": "FUN_002d06d0_0x2d06d0.cpp",
+      "handler": "sceMpegReset",
+      "address": "0x2d06d0"
+    },
+    {
+      "file": "FUN_002d0728_0x2d0728.cpp",
+      "handler": "sceMpegClearRefBuff",
+      "address": "0x2d0728"
+    },
+    {
+      "file": "FUN_002d0780_0x2d0780.cpp",
+      "handler": "sceMpegAddCallback",
+      "address": "0x2d0780"
+    },
+    {
+      "file": "FUN_002d0db8_0x2d0db8.cpp",
+      "handler": "sceMpegFlush",
+      "address": "0x2d0db8"
+    },
+    {
+      "file": "FUN_002d10a8_0x2d10a8.cpp",
+      "handler": "sceMpegDemuxPssRing",
+      "address": "0x2d10a8"
+    },
+    {
+      "file": "FUN_002d13c0_0x2d13c0.cpp",
+      "handler": "sceMpegAddStrCallback",
+      "address": "0x2d13c0"
+    },
+    {
+      "file": "FUN_002d1c28_0x2d1c28.cpp",
+      "handler": "sceCdBreak",
+      "address": "0x2d1c28"
+    },
+    {
+      "file": "FUN_002d1ce0_0x2d1ce0.cpp",
+      "handler": "sceCdStop",
+      "address": "0x2d1ce0"
+    },
+    {
+      "file": "FUN_002d1fc0_0x2d1fc0.cpp",
+      "handler": "sceCdStInit",
+      "address": "0x2d1fc0"
+    },
+    {
+      "file": "FUN_002d1ff0_0x2d1ff0.cpp",
+      "handler": "sceCdStStart",
+      "address": "0x2d1ff0"
+    },
+    {
+      "file": "FUN_002d2028_0x2d2028.cpp",
+      "handler": "sceCdStSeekF",
+      "address": "0x2d2028"
+    },
+    {
+      "file": "FUN_002d2058_0x2d2058.cpp",
+      "handler": "sceCdStSeek",
+      "address": "0x2d2058"
+    },
+    {
+      "file": "FUN_002d2088_0x2d2088.cpp",
+      "handler": "sceCdStStop",
+      "address": "0x2d2088"
+    },
+    {
+      "file": "FUN_002d20c0_0x2d20c0.cpp",
+      "handler": "sceCdStRead",
+      "address": "0x2d20c0"
+    },
+    {
+      "file": "FUN_002d2248_0x2d2248.cpp",
+      "handler": "sceCdStPause",
+      "address": "0x2d2248"
+    },
+    {
+      "file": "FUN_002d2298_0x2d2298.cpp",
+      "handler": "sceCdStResume",
+      "address": "0x2d2298"
+    },
+    {
+      "file": "FUN_002d22f0_0x2d22f0.cpp",
+      "handler": "sceCdStStat",
+      "address": "0x2d22f0"
+    },
+    {
+      "file": "FUN_002d2338_0x2d2338.cpp",
+      "handler": "sceCdStream",
+      "address": "0x2d2338"
+    },
+    {
+      "file": "FUN_002d24a0_0x2d24a0.cpp",
+      "handler": "sceSifResetIop",
+      "address": "0x2d24a0"
+    },
+    {
+      "file": "FUN_002d2608_0x2d2608.cpp",
+      "handler": "sceSifSyncIop",
+      "address": "0x2d2608"
+    },
+    {
+      "file": "FUN_002d2640_0x2d2640.cpp",
+      "handler": "sceSifRebootIop",
+      "address": "0x2d2640"
+    },
+    {
+      "file": "FUN_002d2a18_0x2d2a18.cpp",
+      "handler": "sceCdStatus",
+      "address": "0x2d2a18"
+    },
+    {
+      "file": "FUN_002d5438_0x2d5438.cpp",
+      "handler": "sceCdGetError",
+      "address": "0x2d5438"
+    },
+    {
+      "file": "FUN_002d6730_0x2d6730.cpp",
+      "handler": "sceCdGetDiskType",
+      "address": "0x2d6730"
+    },
+    {
+      "file": "FUN_002d88e0_0x2d88e0.cpp",
+      "handler": "sceSifInitIopHeap",
+      "address": "0x2d88e0"
+    },
+    {
+      "file": "FUN_002d8968_0x2d8968.cpp",
+      "handler": "sceSifAllocIopHeap",
+      "address": "0x2d8968"
+    },
+    {
+      "file": "FUN_002d8af0_0x2d8af0.cpp",
+      "handler": "sceSifLoadIopHeap",
+      "address": "0x2d8af0"
+    },
+    {
+      "file": "FUN_002dc590_0x2dc590.cpp",
+      "handler": "sceCdReadClock",
+      "address": "0x2dc590"
+    },
+    {
+      "file": "FUN_002dc7b0_0x2dc7b0.cpp",
+      "handler": "sceCdReadChain",
+      "address": "0x2dc7b0"
+    }
+  ]
+}

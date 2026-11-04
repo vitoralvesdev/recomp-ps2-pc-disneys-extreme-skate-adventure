@@ -1,0 +1,89 @@
+# Original-code integration candidate, not the finished port.
+include("${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.legacy.txt")
+set(native_iop_library "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib")
+if(NOT EXISTS "${native_iop_library}")
+ message(FATAL_ERROR "Build scripts/Testar-Inicializacao-Original.ps1 before configuring the AOT candidate")
+endif()
+add_library(DisneyOriginalIop STATIC IMPORTED)
+set_target_properties(DisneyOriginalIop PROPERTIES IMPORTED_LOCATION "${native_iop_library}"
+ INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/native/original/iop/runtime/include")
+get_target_property(host_links ps2_runtime LINK_LIBRARIES)
+list(REMOVE_ITEM host_links ps2_iop ps2x::iop)
+set_property(TARGET ps2_runtime PROPERTY LINK_LIBRARIES "${host_links}")
+get_target_property(host_interface ps2_runtime INTERFACE_LINK_LIBRARIES)
+list(REMOVE_ITEM host_interface ps2_iop ps2x::iop)
+set_property(TARGET ps2_runtime PROPERTY INTERFACE_LINK_LIBRARIES "${host_interface}")
+target_link_libraries(ps2_runtime PUBLIC DisneyOriginalIop)
+get_target_property(host_sources ps2_runtime SOURCES)
+list(FILTER host_sources EXCLUDE REGEX "(^|/)ps2_vu1_(core|upper|lower)[.]cpp$")
+set_property(TARGET ps2_runtime PROPERTY SOURCES "${host_sources}")
+file(GLOB_RECURSE vu_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/generated/*.cpp")
+list(FILTER vu_sources EXCLUDE REGEX "/vu1_programs[.]cpp$")
+target_sources(ps2_runtime PRIVATE native/original/vu/ps2_vu1_core.cpp ${vu_sources})
+target_include_directories(ps2_runtime BEFORE PUBLIC
+ "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include")
+target_include_directories(ps2_runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu")
+set_target_properties(ps2EntryRunner PROPERTIES OUTPUT_NAME DisneySkateRuntime
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/runtime")
+foreach(cfg DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+ set_target_properties(ps2EntryRunner PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${cfg} "${CMAKE_SOURCE_DIR}/runtime")
+endforeach()
+
+add_executable(DisneyOriginalGraphicsReplay tests/native_original_graphics_replay.cpp)
+target_link_libraries(DisneyOriginalGraphicsReplay PRIVATE ps2_runtime)
+set_target_properties(DisneyOriginalGraphicsReplay PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")
+
+# One public runtime/VU definition must precede all legacy helper headers.
+# The upstream runner PCH uses absolute legacy headers and must be replaced.
+set_property(TARGET ps2EntryRunner PROPERTY PRECOMPILE_HEADERS "")
+target_precompile_headers(ps2EntryRunner PRIVATE
+ "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include/ps2_runtime.h"
+ "${CMAKE_CURRENT_SOURCE_DIR}/tools/PS2Recomp/ps2xRuntime/include/ps2_runtime_macros.h"
+ "${CMAKE_CURRENT_SOURCE_DIR}/tools/PS2Recomp/ps2xRuntime/include/ps2_syscalls.h"
+ "${CMAKE_CURRENT_SOURCE_DIR}/tools/PS2Recomp/ps2xRuntime/include/ps2_stubs.h")
+target_precompile_headers(ps2_runtime PRIVATE
+ "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include/ps2_runtime.h")
+if(MSVC)
+ # Favor smaller original EE blocks during integration; VU/IOP remain optimized.
+ target_compile_options(ps2EntryRunner PRIVATE /O1 /Ob1)
+endif()
+
+# Correct GIF framing for the actual split IMAGE transfers observed in Disney.
+get_target_property(gif_memory_sources ps2_runtime SOURCES)
+list(FILTER gif_memory_sources EXCLUDE REGEX "(^|/)ps2_memory[.]cpp$")
+set_property(TARGET ps2_runtime PROPERTY SOURCES "${gif_memory_sources}")
+target_sources(ps2_runtime PRIVATE native/original/graphics/native_memory.cpp
+ native/original/graphics/native_gif_stream.cpp)
+target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/native/original/graphics")
+
+add_executable(DisneyNativeGifStreamTest tests/native_gif_stream_test.cpp)
+target_link_libraries(DisneyNativeGifStreamTest PRIVATE ps2_runtime)
+set_target_properties(DisneyNativeGifStreamTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")
+
+# Sony packet order read by the original Disney game, shared by keyboard/gamepad.
+get_target_property(disney_pad_sources ps2_runtime SOURCES)
+list(FILTER disney_pad_sources EXCLUDE REGEX "Kernel/Stubs/Pad[.]cpp$")
+set_property(TARGET ps2_runtime PROPERTY SOURCES "${disney_pad_sources}")
+target_sources(ps2_runtime PRIVATE native/original/input/native_pad_services.cpp)
+
+# Disney native GPU qualification (offline replay only until validated).
+add_library(DisneyNativeGpu STATIC
+ native/original/graphics/gpu/gs_hw_backend.cpp
+ native/original/graphics/gpu/gs_gl.cpp
+ native/original/graphics/gpu/gs_texture_store.cpp
+ native/original/graphics/gpu/gs_swizzle.cpp
+ native/original/graphics/gpu/native_gpu_worker.cpp)
+target_link_libraries(DisneyNativeGpu PRIVATE ps2_runtime opengl32)
+target_compile_definitions(DisneyNativeGpu PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(DisneyOriginalGraphicsReplay PRIVATE DisneyNativeGpu)
+
+target_link_libraries(ps2EntryRunner PRIVATE DisneyNativeGpu)
+
+# Original named sound events -> native Windows PCM output (no sound hardware interpreter).
+target_sources(ps2_runtime PRIVATE native/original/audio/native_audio.cpp)
+target_include_directories(ps2_runtime PRIVATE "${CMAKE_SOURCE_DIR}/native/original/audio")
+add_executable(DisneyNativeAudioTest tests/native_audio_test.cpp)
+target_link_libraries(DisneyNativeAudioTest PRIVATE ps2_runtime)
+target_include_directories(DisneyNativeAudioTest PRIVATE "${CMAKE_SOURCE_DIR}/native/original/audio")
+set_target_properties(DisneyNativeAudioTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")

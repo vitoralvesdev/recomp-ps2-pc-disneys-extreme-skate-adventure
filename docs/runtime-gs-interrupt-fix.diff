@@ -1,0 +1,55 @@
+--- upstream/EeScheduler.cpp
++++ port/EeScheduler.cpp
+@@ -6,6 +6,8 @@
+ #include <algorithm>
+ #include <cassert>
+ #include <cstring>
++#include <cstdio>
++#include <cstdlib>
+ #include <limits>
+ #include <stdexcept>
+ 
+@@ -270,6 +272,7 @@
+         {
+             if (!running->invocations.empty())
+             {
++                if (std::getenv("DISNEY_PORT_DIAGNOSTICS")) std::fprintf(stderr,"[irq-missing-entry] pc=%08x\n",context.pc);
+                 context.pc = 0u;
+             }
+             else
+@@ -1192,6 +1195,7 @@
+     auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;
+     int &nextId = dmac ? m_nextDmacHandlerId : m_nextIntcHandlerId;
+     const int id = allocatePositiveId(nextId, handlers);
++    if (std::getenv("DISNEY_PORT_DIAGNOSTICS")) std::fprintf(stderr,"[irq-register] dmac=%d cause=%u handler=%08x available=%d\n",dmac,cause,handler,m_runtime.hasFunction(handler));
+     if (id == 0)
+     {
+         return KE_ERROR;
+@@ -1275,6 +1279,8 @@
+               { return left.order < right.order; });
+     for (const EeIrqHandler &handler : matching)
+     {
++        static unsigned reports=0;
++        if (std::getenv("DISNEY_PORT_DIAGNOSTICS") && reports++<24u) std::fprintf(stderr,"[irq-delivery] dmac=%d cause=%u handler=%08x\n",dmac,cause,handler.handler);
+         GuestInvocation invocation{};
+         invocation.kind = GuestInvocationKind::Interrupt;
+         invocation.context.pc = handler.handler;
+@@ -1744,6 +1750,18 @@
+ {
+     assertExecutor();
+     processDueDeadlines();
++    // GS SIGNAL/FINISH set CSR in the GIF frontend. Deliver their unmasked
++    // level to the game's registered INTC_GS handler at an EE safe point.
++    // An in-flight invocation owns delivery until its guest handler returns.
++    const auto &gs = m_runtime.memory().gs();
++    const uint64_t pendingGs = gs.csr.load(std::memory_order_acquire) & 0x1fu;
++    const uint64_t unmaskedGs = pendingGs & ~(gs.imr >> 8u);
++    const GuestThread *irqOwner = currentThread();
++    if (unmaskedGs != 0u && m_pendingInvocations.empty() &&
++        (!irqOwner || irqOwner->invocations.empty()))
++    {
++        dispatchIrq(false, 0u);
++    }
+     const uint32_t timerInterrupts = m_pendingEeTimerInterrupts;
+     m_pendingEeTimerInterrupts = 0u;
+     for (uint32_t timer = 0u; timer < 4u; ++timer)

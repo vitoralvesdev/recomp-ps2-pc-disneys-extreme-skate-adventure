@@ -1,0 +1,48 @@
+# Dados protegidos e privados: devem ser fornecidos localmente pelo jogador.
+original/
+assets/
+mc0/
+mc1/
+
+# Produtos de compilação, runtimes distribuíveis e capturas de diagnóstico.
+build/
+dist/
+runtime/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+
+# Ferramentas de terceiros obtidas/geradas localmente.
+tools/
+
+# Diagnósticos e saídas de ferramentas que não pertencem ao código-fonte.
+analysis/*.gpr
+analysis/*.rep/
+analysis/*.ram
+analysis/*.bin
+analysis/*.log
+analysis/game-session.log
+analysis/render-vu1-*.bin
+boot-*.png
+
+# Estado de IDE/SO.
+.vs/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
+
+# Fontes geradas a partir dos dados originais.
+recomp/output/
+src/generated-*/
+src/recovered/
+
+# Pesquisa e diagnósticos locais; a documentação pública fica em docs/.
+analysis/
+# Saídas do .NET e de ferramentas auxiliares.
+**/bin/
+**/obj/
