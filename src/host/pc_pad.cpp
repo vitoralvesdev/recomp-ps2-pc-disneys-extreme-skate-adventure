@@ -42,7 +42,7 @@ void disneyCaptureHostPadEvents()
 {
     uint16_t pressed=0;
     // Deterministic diagnostic input, disabled in all normal launches. No OS UI injection.
-    if(DisneyHang::enabled() && std::getenv("DISNEY_DIAG_MENU_INPUT")){
+    if(std::getenv("DISNEY_DIAG_MENU_INPUT")){
         static unsigned frame=0;++frame;
         if(frame==2100)pressed|=PAD_DOWN;
         if(frame==2220)pressed|=PAD_UP;
@@ -52,6 +52,10 @@ void disneyCaptureHostPadEvents()
         if(frame>=5400 && frame<5580)pressed|=PAD_UP;
         if(frame>=5580 && frame<5700)pressed|=PAD_LEFT;
         if(frame==5760)pressed|=PAD_CROSS;
+        // Profile menu ("KID SKATERS"): Play Game is already highlighted.
+        // One confirm starts the career level load (ToyStory_Bedroom).
+        if(frame==6300)pressed|=PAD_CROSS;
+        if(frame==7500)pressed|=PAD_CROSS;
     }
     for(int key=GetKeyPressed();key!=0;key=GetKeyPressed()) {
         switch(key) {

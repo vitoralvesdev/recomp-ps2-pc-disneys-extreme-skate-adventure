@@ -33,6 +33,8 @@ void disneyAudioShutdown();
 #include <sstream>
 
 #include "hang_diagnostics.h"
+#include "runtime/ps2_profile.h"
+#include "../../native/original/graphics/gpu/native_gpu_stats.h"
 void disneyCaptureHostPadEvents();
 namespace disney::original { void diagnoseGifStreams(const void*); }
 namespace {
@@ -42,12 +44,12 @@ struct LastVuDiagnostic {
  uint32_t pc=0,top=0,itop=0;
 } lastVuDiagnostic;
 void captureVuBefore(PS2Runtime& rt,uint32_t pc,uint32_t top,uint32_t itop) {
- if(!DisneyHang::enabled())return;std::lock_guard lock(lastVuDiagnostic.mutex);
+ if(!DisneyHang::vuCapture())return;std::lock_guard lock(lastVuDiagnostic.mutex);
  lastVuDiagnostic.active=true;lastVuDiagnostic.pc=pc;lastVuDiagnostic.top=top;lastVuDiagnostic.itop=itop;
  lastVuDiagnostic.before=rt.vu1().state();std::memcpy(lastVuDiagnostic.code.data(),rt.memory().getVU1Code(),0x4000);std::memcpy(lastVuDiagnostic.data.data(),rt.memory().getVU1Data(),0x4000);++lastVuDiagnostic.jobs;
 }
 void captureVuAfter(PS2Runtime& rt) {
- if(!DisneyHang::enabled())return;std::lock_guard lock(lastVuDiagnostic.mutex);lastVuDiagnostic.after=rt.vu1().state();lastVuDiagnostic.active=false;
+ if(!DisneyHang::vuCapture())return;std::lock_guard lock(lastVuDiagnostic.mutex);lastVuDiagnostic.after=rt.vu1().state();lastVuDiagnostic.active=false;
 }
 void diagnoseLastVu(PS2Runtime& rt){
  if(!DisneyHang::enabled())return;
@@ -64,6 +66,22 @@ void diagnoseLastVu(PS2Runtime& rt){
  std::fwrite(header,sizeof(header),1,f);std::fwrite(&lastVuDiagnostic.before,sizeof(VU1State),1,f);
  std::fwrite(lastVuDiagnostic.code.data(),1,0x4000,f);std::fwrite(lastVuDiagnostic.data.data(),1,0x4000,f);std::fclose(f);}
  std::fprintf(stderr,"[hang-last-vu] jobs=%llu entry=%x top=%x itop=%x before=%x after=%x saved=1\n",(unsigned long long)jobs,lastVuDiagnostic.pc,lastVuDiagnostic.top,lastVuDiagnostic.itop,lastVuDiagnostic.before.pc,lastVuDiagnostic.after.pc);
+}
+// Job-size histogram (VU cycles per MSCAL/MSCNT) so gameplay and menu costs can be compared per instruction,
+// not only per job. Log2 buckets of 32 cycles: 0..31, 32..63, ...
+std::atomic<unsigned long long> vu1JobHist[24];
+void vu1JobSize(uint64_t cycles) {
+ unsigned bucket=0;uint64_t limit=32;while(cycles>=limit && bucket<23){limit<<=1;++bucket;}
+ vu1JobHist[bucket].fetch_add(1,std::memory_order_relaxed);
+}
+void printVu1JobHist() {
+ std::fprintf(stderr,"[vu1-hist]");
+ uint64_t limit=32;
+ for(unsigned bucket=0;bucket<24;++bucket,limit<<=1){
+  const auto count=vu1JobHist[bucket].load();
+  if(count)std::fprintf(stderr," %llu..%llu:%llu",(unsigned long long)(limit>>1),(unsigned long long)(limit-1),(unsigned long long)count);
+ }
+ std::fprintf(stderr,"\n");
 }
 }
 
@@ -426,8 +444,13 @@ static void UploadFrame(Texture2D &tex, PS2Runtime *rt, uint32_t &outWidth, uint
     static bool s_hasUploadedFrame = false;
     static std::vector<uint8_t> s_scratch;
 
+    // Latch once per vsync tick. The flicker fix is in gs_hw_backend Present():
+    // when both display circuits are active (double-buffering), it now selects
+    // the render target that was drawn into most recently (highest frameHi),
+    // which is the completed back-buffer — not the one currently being rendered.
     const uint64_t currentTick = rt->eeScheduler().currentVSyncTick();
     const bool needsLatch = !s_hasLatchedInitialFrame || currentTick != s_lastPresentationTick;
+
     if (needsLatch)
     {
         rt->gs().latchHostPresentationFrame();
@@ -769,9 +792,16 @@ bool PS2Runtime::syncCoreSubsystems()
                                      }
                                      captureVuBefore(*this,startPC,top,itop);
                                      const auto nativeBeforeCycles=m_vu1.state().cycles;
+                                     {
+                                     Ps2Profile::Timer<decltype(Ps2Profile::vu1Ns)> vu1Timer(Ps2Profile::vu1Ns);
+                                     ++Ps2Profile::vu1Jobs;
                                      m_vu1.execute(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE,
                                                    m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
                                                    m_gs, &m_memory, startPC, top, itop, 65536);
+                                     }
+                                     const uint64_t jobsCycles=m_vu1.state().cycles-nativeBeforeCycles;
+                                     Ps2Profile::vu1Cycles.fetch_add(jobsCycles,std::memory_order_relaxed);
+                                     vu1JobSize(jobsCycles);
                                      captureVuAfter(*this);
                                      if(disney::diagnostic_flags::traceVu())
                                          std::fprintf(stderr,"[native-vu-return] input=%04x pc=%04x vi2=%04x cycles=%llu stopped=%d/%d\n",startPC,m_vu1.state().pc,m_vu1.state().vi[2]&65535,(unsigned long long)(m_vu1.state().cycles-nativeBeforeCycles),m_vu1.state().stoppedByD,m_vu1.state().stoppedByT);
@@ -792,9 +822,17 @@ bool PS2Runtime::syncCoreSubsystems()
                                      m_vu1.state().tBitEnabled =
                                          (cpuContext->vu0_fbrst & (1u << 11)) != 0u;
                                      captureVuBefore(*this,m_vu1.state().pc,top,itop);
+                                     const auto nativeBeforeCycles=m_vu1.state().cycles;
+                                     {
+                                     Ps2Profile::Timer<decltype(Ps2Profile::vu1Ns)> vu1Timer(Ps2Profile::vu1Ns);
+                                     ++Ps2Profile::vu1Jobs;
                                      m_vu1.resume(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE,
                                                   m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
                                                   m_gs, &m_memory, top, itop, 65536);
+                                     }
+                                     const uint64_t jobsCycles=m_vu1.state().cycles-nativeBeforeCycles;
+                                     Ps2Profile::vu1Cycles.fetch_add(jobsCycles,std::memory_order_relaxed);
+                                     vu1JobSize(jobsCycles);
                                      captureVuAfter(*this);
                                      cpuContext->vu0_vpu_stat =
                                          (cpuContext->vu0_vpu_stat & ~0x0600u) |
@@ -1243,6 +1281,14 @@ const char *describeGuestBranchKind(PS2Runtime::GuestBranchKind kind)
 
 PS2Runtime::RecompiledFunction PS2Runtime::lookupFunction(uint32_t address)
 {
+    if (DisneyHang::enabled() && DisneyHang::bodyEnd != std::chrono::steady_clock::time_point{})
+    {
+        DisneyHang::schedulerNs.fetch_add(
+            static_cast<unsigned long long>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - DisneyHang::bodyEnd).count()),
+            std::memory_order_relaxed);
+        DisneyHang::bodyEnd = {};
+    }
     DisneyHang::dispatch(address);
     pushDispatchPc(address);
 
@@ -1560,6 +1606,8 @@ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint3
         return;
     }
 
+    const auto vu0Start = DisneyHang::enabled() ? std::chrono::steady_clock::now()
+                                                : std::chrono::steady_clock::time_point{};
     m_vu0.reset();
     copyVu0ContextToState(ctx, m_vu0.state());
     m_vu0.execute(vu0Code, PS2_VU0_CODE_SIZE,
@@ -1567,6 +1615,10 @@ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint3
                   m_gs, &m_memory,
                   startPC, 0u, ctx->vu0_itop, 4096);
     copyVu0StateToContext(m_vu0.state(), ctx);
+    if (DisneyHang::enabled())
+    {
+        DisneyHang::vu0Timing(std::chrono::steady_clock::now() - vu0Start);
+    }
 }
 
 void PS2Runtime::vu0StartMicroProgram(uint8_t *rdram, R5900Context *ctx, uint32_t address)
@@ -2576,15 +2628,113 @@ void PS2Runtime::run()
         {
             m_debugUiDrawCallback(*this, m_debugUiUserData);
         }
-        if(DisneyHang::enabled()&&std::getenv("DISNEY_DIAG_MENU_INPUT")){
+        // Unattended diagnostic session: the menu script drives the game while
+        // the host records a screenshot and a performance sample every
+        // DISNEY_CAPTURE_INTERVAL frames (default 300), bounded by
+        // DISNEY_SESSION_FRAMES when set.
+        if(std::getenv("DISNEY_DIAG_MENU_INPUT") || std::getenv("DISNEY_SESSION_FRAMES")){
             static unsigned captureFrames=0;++captureFrames;
-            if(captureFrames==1800 || captureFrames==3600 || captureFrames==5100 || captureFrames==6000 || captureFrames==6600){
+            const char* intervalValue=std::getenv("DISNEY_CAPTURE_INTERVAL");
+            static const unsigned interval=intervalValue?std::max(1u,(unsigned)std::atoi(intervalValue)):300u;
+            const char* limitValue=std::getenv("DISNEY_SESSION_FRAMES");
+            static const unsigned limit=limitValue?std::max(1u,(unsigned)std::atoi(limitValue)):0u;
+            const bool finalFrame=limit && captureFrames>=limit;
+            if(captureFrames==1 || captureFrames%interval==0 || finalFrame){
                 const char* directory=DisneyHang::outputDir();
-                char filename[1024];std::snprintf(filename,sizeof(filename),"%s/menu-probe-%u.png",directory?directory:"analysis",captureFrames);
+                const char* base=directory?directory:"analysis";
+                char filename[1024];std::snprintf(filename,sizeof(filename),"%s/session-%05u.png",base,captureFrames);
                 rlDrawRenderBatchActive();TakeScreenshot(filename);
-                if(directory){std::snprintf(filename,sizeof(filename),"%s/menu-probe-%u.ram",directory,captureFrames);
-                if(FILE* f=std::fopen(filename,"wb")){std::fwrite(m_memory.getRDRAM(),1,PS2_RAM_SIZE,f);std::fclose(f);}}
-                std::fprintf(stderr,"[hang-menu-capture] frame=%u\n",captureFrames);
+                const auto now=std::chrono::steady_clock::now();
+                static const auto sessionStart=now;
+                static auto lastSample=now;
+                static uint64_t lastTick=0;
+                static unsigned long long lastLogic=0,lastDraw=0,lastFlip=0;
+                static unsigned long long lastCpu=0,lastVu0=0,lastStub=0,lastGpuWait=0,lastFlush=0,lastSyncOp=0,lastRead=0,lastClear=0;
+                static unsigned long long lastPending=0,lastVif1=0,lastGif=0,lastVu1=0,lastVu1Jobs=0,lastVu1Cycles=0,lastGifBytes=0,lastGsSubmits=0,lastGsVertices=0,lastWorkerBusy=0,lastGsVtx=0;
+                static FILE* csv=[]{
+                    const char* dir=DisneyHang::outputDir();
+                    char path[1024];std::snprintf(path,sizeof(path),"%s/session-performance.csv",dir?dir:"analysis");
+                    FILE* f=std::fopen(path,"wb");
+                    if(f)std::fprintf(f,"frame,elapsed_s,host_fps,vsync_tick,game_fps,logic_fps,draw_fps,flip_fps,busy,dma,gif,gs,vif,running_tid,threads,vu1_pc,game_cpu_pct,vu0_calls,vu0_pct,stub_pct,gpu_wait_pct,present_us,queue_blocks,flush_pct,sync_op_pct,read_pct,clear_pct,pending_pct,vif1_pct,gif_pct,vu1_pct,vu1_jobs_s,worker_busy_pct,gs_vtx_pct\n");
+                    return f;
+                }();
+                const double elapsed=std::chrono::duration<double>(now-sessionStart).count();
+                const double since=std::chrono::duration<double>(now-lastSample).count();
+                const uint64_t tick=m_memory.gs().vsyncTick.load();
+                const unsigned long long logic=DisneyHang::logic.load(),draw=DisneyHang::draw.load(),flip=DisneyHang::flip.load();
+                const double gameFps=since>0.0?(tick-lastTick)/since:0.0;
+                const double logicFps=since>0.0?(logic-lastLogic)/since:0.0;
+                const double drawFps=since>0.0?(draw-lastDraw)/since:0.0;
+                const double flipFps=since>0.0?(flip-lastFlip)/since:0.0;
+                const unsigned long long cpu=DisneyHang::gameCpu100ns.load(),vu0=DisneyHang::vu0Ns.load(),stub=DisneyHang::stubs100ns.load();
+                const unsigned long long gpuWait=DisneyGpuStats::syncWaitNs.load();
+                const unsigned long long flushWait=DisneyGpuStats::flushWaitNs.load(),syncOpWait=DisneyGpuStats::syncOpWaitNs.load();
+                const unsigned long long readWait=DisneyGpuStats::readWaitNs.load(),clearWait=DisneyGpuStats::clearWaitNs.load();
+                const double cpuPct=since>0.0?(cpu-lastCpu)*1e-7/since*100.0:0.0;
+                const double vu0Pct=since>0.0?(vu0-lastVu0)*1e-9/since*100.0:0.0;
+                const double stubPct=since>0.0?(stub-lastStub)*1e-7/since*100.0:0.0;
+                const double gpuPct=since>0.0?(gpuWait-lastGpuWait)*1e-9/since*100.0:0.0;
+                const double flushPct=since>0.0?(flushWait-lastFlush)*1e-9/since*100.0:0.0;
+                const double syncOpPct=since>0.0?(syncOpWait-lastSyncOp)*1e-9/since*100.0:0.0;
+                const double readPct=since>0.0?(readWait-lastRead)*1e-9/since*100.0:0.0;
+                const double clearPct=since>0.0?(clearWait-lastClear)*1e-9/since*100.0:0.0;
+                const double presentUs=DisneyGpuStats::presentCalls.load()>0?DisneyGpuStats::presentWaitNs.load()*1e-3/DisneyGpuStats::presentCalls.load():0.0;
+                const unsigned long long pending=Ps2Profile::pendingNs.load(),vif1=Ps2Profile::vif1Ns.load(),gif=Ps2Profile::gifNs.load();
+                const unsigned long long vu1Ns=Ps2Profile::vu1Ns.load(),vu1Jobs=Ps2Profile::vu1Jobs.load();
+                const unsigned long long vu1Cycles=Ps2Profile::vu1Cycles.load();
+                const double pendingPct=since>0.0?(pending-lastPending)*1e-9/since*100.0:0.0;
+                const double vif1Pct=since>0.0?(vif1-lastVif1)*1e-9/since*100.0:0.0;
+                const double gifPct=since>0.0?(gif-lastGif)*1e-9/since*100.0:0.0;
+                const double vu1Pct=since>0.0?(vu1Ns-lastVu1)*1e-9/since*100.0:0.0;
+                const double vu1JobsPerSec=since>0.0?(vu1Jobs-lastVu1Jobs)/since:0.0;
+                const double vu1CycPerJob=vu1Jobs>lastVu1Jobs?(double)(vu1Cycles-lastVu1Cycles)/(double)(vu1Jobs-lastVu1Jobs):0.0;
+                const double vu1NsPerCycle=vu1Cycles>lastVu1Cycles?(double)(vu1Ns-lastVu1)/(double)(vu1Cycles-lastVu1Cycles):0.0;
+                const unsigned long long gifBytes=Ps2Profile::gifBytes.load();
+                const double gifMBPerSec=since>0.0?(double)(gifBytes-lastGifBytes)/since/1048576.0:0.0;
+                lastGifBytes=gifBytes;
+                const unsigned long long gsSubmits=Ps2Profile::gsSubmits.load(),gsVertices=Ps2Profile::gsVertices.load();
+                const double gsSubmitsPerSec=since>0.0?(double)(gsSubmits-lastGsSubmits)/since:0.0;
+                const double gsVertsPerSubmit=gsSubmits>lastGsSubmits?(double)(gsVertices-lastGsVertices)/(double)(gsSubmits-lastGsSubmits):0.0;
+                lastGsSubmits=gsSubmits;lastGsVertices=gsVertices;
+                const unsigned long long workerBusy=DisneyGpuStats::workerBusyNs.load();
+                const double workerBusyPct=since>0.0?(workerBusy-lastWorkerBusy)*1e-9/since*100.0:0.0;
+                lastWorkerBusy=workerBusy;
+                const unsigned long long gsVtx=Ps2Profile::gsVtxNs.load();
+                const double gsVtxPct=since>0.0?(gsVtx-lastGsVtx)*1e-9/since*100.0:0.0;
+                lastGsVtx=gsVtx;
+                lastSample=now;lastTick=tick;lastLogic=logic;lastDraw=draw;lastFlip=flip;
+                lastCpu=cpu;lastVu0=vu0;lastStub=stub;lastGpuWait=gpuWait;
+                lastFlush=flushWait;lastSyncOp=syncOpWait;lastRead=readWait;lastClear=clearWait;
+                lastPending=pending;lastVif1=vif1;lastGif=gif;lastVu1=vu1Ns;lastVu1Jobs=vu1Jobs;lastVu1Cycles=vu1Cycles;
+                const auto state=eeScheduler().snapshot();
+                std::string threads;char threadEntry[48];
+                for(const auto& thread:state.threads){
+                    std::snprintf(threadEntry,sizeof(threadEntry)," %d:%08x",thread.id,thread.pc);threads+=threadEntry;
+                }
+                if(csv){
+                    std::fprintf(csv,"%u,%.3f,%.1f,%llu,%.2f,%.2f,%.2f,%.2f,%08x,%llu,%llu,%llu,%llu,%d,%s,%08x,%.0f,%llu,%.0f,%.0f,%.0f,%.0f,%llu,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.0f,%.1f,%.0f,%.0f\n",
+                        captureFrames,elapsed,(double)GetFPS(),(unsigned long long)tick,gameFps,logicFps,drawFps,flipFps,
+                        m_memory.read32(0x346b34),(unsigned long long)m_memory.dmaStartCount(),(unsigned long long)m_memory.gifCopyCount(),
+                        (unsigned long long)m_memory.gsWriteCount(),(unsigned long long)m_memory.vifWriteCount(),state.runningThreadId,
+                        threads.c_str(),vu1().state().pc,cpuPct,DisneyHang::vu0Calls.load(),vu0Pct,stubPct,gpuPct,presentUs,
+                        DisneyGpuStats::queueBlocks.load(),flushPct,syncOpPct,readPct,clearPct,
+                        pendingPct,vif1Pct,gifPct,vu1Pct,vu1JobsPerSec,workerBusyPct,gsVtxPct);
+                    std::fflush(csv);
+                }
+                std::fprintf(stderr,"[session] frame=%u elapsed=%.2f hostFps=%u vsync=%llu gameFps=%.2f logicFps=%.2f drawFps=%.2f flipFps=%.2f cpu=%.0f%% vu0=%llu/%.0f%% stub=%.0f%% gpuwait=%.0f%% (flush=%.0f%% sync=%.0f%% read=%.0f%% clear=%.0f%%) worker=%.0f%% pipe=pending%.0f/vif1%.0f/gif%.0f(batch%.0f)/vu1%.0f%% jobs=%.1f/s cyc/job=%.0f ns/cyc=%.1f gifMB/s=%.1f draws=%.0f/s v/draw=%.1f presentUs=%.0f busy=%08x tid=%d vu1pc=%08x threads=%s\n",
+                    captureFrames,elapsed,GetFPS(),(unsigned long long)tick,gameFps,logicFps,drawFps,flipFps,
+                    cpuPct,DisneyHang::vu0Calls.load(),vu0Pct,stubPct,gpuPct,flushPct,syncOpPct,readPct,clearPct,workerBusyPct,
+                    pendingPct,vif1Pct,gifPct,gsVtxPct,vu1Pct,vu1JobsPerSec,vu1CycPerJob,vu1NsPerCycle,gifMBPerSec,gsSubmitsPerSec,gsVertsPerSubmit,presentUs,
+                    m_memory.read32(0x346b34),state.runningThreadId,vu1().state().pc,threads.c_str());
+                if(finalFrame){
+                    printVu1JobHist();
+                    std::snprintf(filename,sizeof(filename),"%s/session-final.ram",base);
+                    if(FILE* f=std::fopen(filename,"wb")){std::fwrite(m_memory.getRDRAM(),1,PS2_RAM_SIZE,f);std::fclose(f);}
+                    std::fprintf(stderr,"[session] bounded run ended at frame=%u\n",captureFrames);
+                    std::cout.flush();std::cerr.flush();
+                    if(csv)std::fclose(csv);
+                    std::_Exit(75);
+                }
             }
         }
         EndDrawing();

@@ -1,0 +1,20 @@
+# Original Disney IRX code compiled ahead of time. No CPU instruction decoder.
+file(GLOB_RECURSE DISNEY_IOP_RUNTIME CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/*.cpp")
+file(GLOB DISNEY_IOP_GENERATED CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
+foreach(source IN LISTS DISNEY_IOP_RUNTIME)
+ if(source MATCHES "/iop_cpu[.]cpp$")
+  message(FATAL_ERROR "Instruction interpreter source is forbidden in DisneyOriginalIop")
+ endif()
+endforeach()
+add_library(DisneyOriginalIop STATIC ${DISNEY_IOP_RUNTIME} ${DISNEY_IOP_GENERATED})
+target_include_directories(DisneyOriginalIop PUBLIC
+ "${CMAKE_CURRENT_SOURCE_DIR}/runtime/src" "${CMAKE_CURRENT_SOURCE_DIR}/runtime/include")
+target_compile_features(DisneyOriginalIop PUBLIC cxx_std_20)
+target_compile_definitions(DisneyOriginalIop PRIVATE _CRT_SECURE_NO_WARNINGS)
+if(MSVC)
+ target_compile_options(DisneyOriginalIop PRIVATE /O2 /bigobj /Gy)
+endif()
+add_executable(DisneyOriginalIopBootTest boot_test.cpp)
+target_link_libraries(DisneyOriginalIopBootTest PRIVATE DisneyOriginalIop)
+set_target_properties(DisneyOriginalIopBootTest PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")

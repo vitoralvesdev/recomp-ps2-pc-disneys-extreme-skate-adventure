@@ -58,7 +58,13 @@ namespace
         return type==EeEventType::VBlankStart || type==EeEventType::VBlankEnd;
     }
     constexpr auto kVBlankPeriod = std::chrono::microseconds(16667);
-    constexpr auto kVBlankDuration = std::chrono::microseconds(500);
+    // Polling interval for native-vblank mode: check host wall clock once per
+    // kVBlankPollInterval instead of every kVBlankDuration (500 µs).
+    // 500 µs triggered ~2000 checkpoints/second even when no VBlank was due,
+    // fragmenting the EE execution during level-load IO and causing stalls.
+    // 4 ms keeps the checkpoint overhead low while still delivering VBlanks
+    // on time for a 60 Hz game (period = 16.7 ms).
+    constexpr auto kVBlankDuration = std::chrono::microseconds(4000);
     constexpr uint64_t kAlarmTickMicroseconds = 64u;
     constexpr uint32_t kDebugPublishDispatchInterval = 4096u;
 
@@ -330,11 +336,13 @@ void EeScheduler::run()
             m_guestExecuting.store(true, std::memory_order_release);
             DisneyHang::context(context);
             function(m_rdram, &context, &m_runtime);
+            if (DisneyHang::enabled()) DisneyHang::bodyEnd = std::chrono::steady_clock::now();
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
         }
         catch (const EeDispatcherTransfer &)
         {
+            if (DisneyHang::enabled()) DisneyHang::bodyEnd = std::chrono::steady_clock::now();
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
         }

@@ -1,24 +1,127 @@
-# Disney's Extreme Skate Adventure — Windows
+# Disney's Extreme Skate Adventure — Port nativo para Windows x64
 
-Port em desenvolvimento para Windows x64 de **Disney's Extreme Skate Adventure** (PS2, SLUS_206.07). O jogo inicia nativamente no Windows por meio do executável incluído; ele **não usa PCSX2** para executar.
+Port nativo do jogo **Disney's Extreme Skate Adventure** (PlayStation 2, SLUS_206.07) para Windows x64.
+O jogo roda a partir do código original recompilado para o PC: **não usa PCSX2 nem nenhum emulador de
+PlayStation 2** e **não interpreta o binário do jogo em tempo de execução**.
 
-> Estado atual: o menu, o controle e a entrada em fase funcionam. Ainda existem defeitos conhecidos de renderização, colisão e estabilidade em algumas fases. Este repositório é de desenvolvimento, não uma distribuição final do jogo.
+O projeto combina quatro camadas próprias:
 
-## Jogar
+| Camada | O que faz |
+| --- | --- |
+| Runtime do host | Loop principal, scheduler, memória RDRAM/VRAM, IRQs, DMA, bridges de sistema |
+| Código do jogo (AOT) | Funções do EE (R5900) e microprogramas de VU0/VU1 recompilados para C++ |
+| GPU | GS (Graphics Synthesizer) traduzido para OpenGL 3.3, com merge de batches e apresentação em janela |
+| Mídia | Áudio nativo, vídeo e IOP reimplementados no host, sem depender de BIOS ou emulador externo |
 
-1. Baixe ou clone o projeto e mantenha as pastas `runtime`, `original` e `assets` lado a lado com o executável.
-2. Forneça seus próprios arquivos da versão norte-americana de PS2 que você possui legalmente. O arquivo necessário é `original/extracted/SLUS_206.07`; os demais dados extraídos usados pelo jogo ficam em `original/extracted/`.
-3. Abra **`Disney's Extreme Skate Adventure.exe`** na raiz da pasta. Alternativamente, `Jogar.cmd` chama o mesmo iniciador.
+O iniciador valida o pacote, ajusta o ambiente, abre a janela com o título do jogo e inicia o runtime.
 
-O título da janela deve ser **Disney's Extreme Skate Adventure**. Não procure nem execute `runtime/DisneySkateRuntime.exe` diretamente: o iniciador raiz verifica a estrutura de arquivos e o abre com os argumentos corretos.
+---
 
-### Se o jogo não abrir
+## Status de desenvolvimento
 
-O pacote traz as DLLs de mídia usadas pelo runtime. Em um Windows limpo, se houver uma mensagem citando `VCRUNTIME140.dll` ou `MSVCP140.dll`, instale o **Microsoft Visual C++ Redistributable x64** mais recente e reinicie o jogo:
+Atualizado em **06/11/2026**.
+
+| Área | Estado |
+| --- | --- |
+| Boot e menu | Funcionando a 60 fps |
+| Controle (teclado e USB) | Funcionando |
+| Entrada em fase (Toy Story) | Funcionando; carregamento inicial único de ~15 s |
+| Gameplay | Jogável, porém abaixo do alvo de 60 fps: **~19–22 fps** em gameplay carregado |
+| Áudio | Parcial, em validação fase a fase |
+| Colisão | Boa no geral; algumas rampas/objetos ainda falham |
+| Vídeo/fidelidade gráfica | Avançado; ainda há diferenças pontuais de blending e apresentação |
+
+### Otimização mais recente (06/11/2026)
+
+A entrega das primitivas GS para a thread de GPU era feita uma a uma: cada uma das ~31 mil
+primitivas por frame travava um mutex, alocava um nó de fila e acordava o worker. Isso consumia
+**25% do frame**. As primitivas agora são acumuladas e entregues em blocos de 256, preservando a
+ordem dos comandos.
+
+| Métrica (frame 10500, mesma cena) | Antes | Depois |
+| --- | --- | --- |
+| FPS de gameplay | 17,06 | **21,69** |
+| Tempo de GIF/GS no frame | 30% | **15%** |
+| Hand-off GS (batch) | 25% | **9%** |
+
+O gargalo restante é a execução do código do jogo no EE: VU1 recompilado (~36% do frame),
+unpack do VIF1 (~14%) e decode GIF/GS (~15%). A thread de GPU fica ~62% ocupada, com
+~31 mil primitivas e ~600 chamadas de desenho OpenGL por frame.
+
+### Problemas conhecidos
+
+- Gameplay em ~19–22 fps; menu a 60 fps.
+- Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
+- Áudio e vídeo ainda precisam de validação fase a fase.
+- Algumas rampas e objetos sem colisão correta, principalmente nas fases de Toy Story.
+- Algumas fases podem parar durante o carregamento.
+
+Relate defeitos informando a fase, o personagem, a ação que reproduz o problema e o log
+`analysis/game-session.log` gerado pelo iniciador. **Nunca anexe ISO, WAD, saves ou outros dados
+originais do jogo.**
+
+---
+
+## Jogar (sem compilar nada)
+
+O pacote pronto contém o iniciador, o runtime e as DLLs. Você **não precisa** instalar Visual Studio,
+CMake, PCSX2, Ghidra ou Java para jogar.
+
+### 1. Monte a pasta do jogo
+
+Mantenha esta estrutura lado a lado:
+
+```text
+Disney's Extreme Skate Adventure.exe   <- iniciador (duplo clique)
+Jogar.cmd                              <- atalho opcional
+runtime/
+  DisneySkateRuntime.exe               <- runtime do port
+  *.dll                                <- DLLs de mídia/áudio
+original/extracted/
+  SLUS_206.07                          <- binário da sua cópia legal
+  SKATE4.HED
+  SKATE4.WAD
+  IOP/*.IRX
+  ...                                  <- demais dados extraídos
+assets/
+  native/audio/catalog.tsv
+  ...                                  <- demais assets nativos
+```
+
+Os arquivos de `original/` e `assets/` **não são distribuídos** com o projeto: use a sua própria
+cópia legal do jogo. Eles nunca entram no GitHub.
+
+### 2. Execute
+
+Dê **duplo clique em `Disney's Extreme Skate Adventure.exe`** (ou em `Jogar.cmd`).
+O iniciador confere os arquivos, configura o renderer e abre o jogo na janela com o título
+**Disney's Extreme Skate Adventure**.
+
+Opções do iniciador:
+
+| Comando | Efeito |
+| --- | --- |
+| `"Disney's Extreme Skate Adventure.exe" --verificar` | Só valida o pacote e mostra o que está faltando |
+| `"Disney's Extreme Skate Adventure.exe" --diagnostico` | Sessão normal gravando evidências em `analysis/hang-reports` |
+
+Também é possível abrir o runtime diretamente, a partir da raiz do projeto:
+
+```bat
+runtime\DisneySkateRuntime.exe original\extracted\SLUS_206.07
+```
+
+### 3. Se o jogo não abrir
+
+O pacote traz as DLLs de mídia usadas pelo runtime. Em um Windows limpo, se aparecer uma mensagem
+citando `VCRUNTIME140.dll` ou `MSVCP140.dll`, instale o **Microsoft Visual C++ Redistributable x64**
+mais recente e reinicie o jogo:
 
 <https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist>
 
-Não é necessário instalar PCSX2, Ghidra, Java, Visual Studio ou CMake para **jogar**. Essas ferramentas só são usadas no desenvolvimento e na análise.
+Atualize também o driver da GPU pelo fabricante. O runtime usa **OpenGL 3.3**.
+
+O iniciador grava `analysis/game-session.log` na raiz do projeto. Esse arquivo e a pasta `analysis/`
+são locais, ignorados pelo Git.
 
 ### Controles
 
@@ -34,11 +137,11 @@ Teclado:
 | L1 / R1 | Q / E |
 | L2 / R2 | Shift esquerdo / Shift direito |
 
-Controles USB modernos são detectados pelo Windows. O mapeamento segue o padrão do controle Xbox (A confirma, B volta, Start pausa/avança) e usa a base SDL/raylib para outros controles compatíveis, incluindo DualShock/DualSense em modo XInput ou SDL. O teclado continua ativo mesmo com um controle conectado.
+Controles USB modernos são detectados pelo Windows. O mapeamento segue o padrão Xbox (A confirma,
+B volta, Start pausa/avança) e usa a base SDL/raylib para outros controles compatíveis, incluindo
+DualShock/DualSense em modo XInput ou SDL. O teclado continua ativo com um controle conectado.
 
-## Requisitos
-
-Requisitos mínimos provisórios — ainda não são uma certificação de desempenho, porque o port está em desenvolvimento:
+### Requisitos
 
 | Componente | Mínimo | Recomendado |
 | --- | --- | --- |
@@ -49,23 +152,47 @@ Requisitos mínimos provisórios — ainda não são uma certificação de desem
 | Espaço livre | 7 GB para dados extraídos e runtime | 12 GB para desenvolvimento e diagnósticos |
 | Entrada | Teclado | Controle USB XInput/SDL também suportado |
 
-Atualize o driver da GPU diretamente pelo fabricante (NVIDIA, AMD ou Intel). O runtime utiliza OpenGL; o PC não precisa de uma GPU de PlayStation 2 ou emulador.
+---
 
-## Dados do jogo e publicação
+## Estrutura do repositório
 
-Os arquivos da ISO, dados extraídos, áudio, saves e binários gerados **não entram no GitHub**. Eles são protegidos por direitos autorais e cada jogador deve obtê-los da sua própria cópia legal. O `.gitignore` foi configurado para evitar inclusão acidental desses arquivos, bem como de builds, logs e capturas de diagnóstico.
+```text
+src/host/          Runtime do host: loop principal, scheduler, memória, IRQs, bridges, áudio/vídeo
+src/launcher/      Iniciador Windows (validação do pacote e janela do jogo)
+native/original/   Port nativo: GS/OpenGL, VIF/GIF, VU, IOP, áudio, input, oclusão
+native/            Conversor de assets e testes nativos de colisão
+tests/             Testes do runtime e dos drivers gráficos
+scripts/           Preparação de dados, compilação e análise
+recomp/            Configuração da recompilação (pontos de entrada e bridges)
+docs/              Documentação técnica, arquitetura e política de distribuição
+```
 
-O repositório contém o código do host Windows, scripts de preparação/análise e documentação. Para preparar dados locais de desenvolvimento, use `scripts/Preparar-Dados-Nativos.ps1` depois de colocar os dados legalmente extraídos nas pastas esperadas. Esse procedimento requer ferramentas de desenvolvimento e não é necessário para jogar uma compilação já preparada.
+O que **não** fica no Git:
 
-## Problemas conhecidos
+- `original/`, `assets/`, `mc0/`, `mc1/` — dados do jogo e saves (direitos autorais).
+- `runtime/`, `build/`, `dist/`, `*.exe`, `*.dll` — binários gerados.
+- `analysis/`, capturas, logs e dumps — diagnósticos locais.
+- `src/generated-*/`, `src/recovered/`, `recomp/output/`,
+  `native/original/iop/generated/`, `native/original/vu/generated/` — código gerado a partir dos
+  dados originais.
 
-- Pode haver piscadas/quadros misturados durante o gameplay.
-- Algumas rampas e objetos ainda podem não ter colisão correta, sobretudo nas fases de Toy Story.
-- Algumas fases podem parar durante o carregamento.
-- O áudio e a fidelidade de vídeo ainda exigem validação fase a fase.
+O `.gitignore` é a fonte de verdade. Antes de publicar, consulte
+[docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
-Relate defeitos com a fase, personagem, ação que os reproduz e o conteúdo de `analysis/game-session.log` quando disponível. Não anexe ISO, WAD, saves pessoais ou outros dados originais do jogo.
+---
 
 ## Desenvolvimento
 
-Para compilar, execute `scripts/Compilar-Candidato-Original.ps1` em uma máquina de desenvolvimento já preparada. Consulte [docs/BUILDING.md](docs/BUILDING.md) para os pré-requisitos e [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) antes de criar uma release. Ferramentas de análise e referências técnicas ficam em `docs/`.
+Pré-requisitos: Windows 10/11 x64, Visual Studio Build Tools com C++ x64, CMake 3.21+ e a sua cópia
+legal do jogo extraída localmente.
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\Compilar-Candidato-Original.ps1
+```
+
+Instruções detalhadas em [docs/BUILDING.md](docs/BUILDING.md); arquitetura em
+[docs/arquitetura-nativa.md](docs/arquitetura-nativa.md).
+
+Este repositório não possui uma licença global: autoria e dependências de terceiros ainda precisam
+de revisão antes de publicação. Não presuma que o código ou os recursos possam ser reutilizados.

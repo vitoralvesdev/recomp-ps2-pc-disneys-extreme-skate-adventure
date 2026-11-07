@@ -1,13 +1,14 @@
 # Dados protegidos e privados: devem ser fornecidos localmente pelo jogador.
-original/
-assets/
-mc0/
-mc1/
+# Ancorados na raiz: native/original/ e .../include/runtime/ sao codigo-fonte do port.
+/original/
+/assets/
+/mc0/
+/mc1/
 
 # Produtos de compilação, runtimes distribuíveis e capturas de diagnóstico.
-build/
-dist/
-runtime/
+/build/
+/dist/
+/runtime/
 *.exe
 *.dll
 *.pdb
@@ -28,6 +29,10 @@ analysis/*.log
 analysis/game-session.log
 analysis/render-vu1-*.bin
 boot-*.png
+/*.ppm
+/session-*.png
+/native-aot-frame-*.png
+/smoke_*.log
 
 # Estado de IDE/SO.
 .vs/
@@ -40,6 +45,9 @@ Desktop.ini
 recomp/output/
 src/generated-*/
 src/recovered/
+# Codigo de convidado gerado a partir dos modulos IRX e do microcodigo do jogo.
+native/original/iop/generated/
+native/original/vu/generated/
 
 # Pesquisa e diagnósticos locais; a documentação pública fica em docs/.
 analysis/
