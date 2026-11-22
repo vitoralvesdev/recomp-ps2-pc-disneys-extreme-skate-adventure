@@ -11,9 +11,10 @@ Este projeto deve publicar apenas código próprio, scripts, arquivos de configu
 
 ## Antes de uma release
 
-1. Confirme que `git status --ignored` não revela dados do jogo fora das regras previstas no `.gitignore`.
-2. Faça uma revisão de licenças das bibliotecas e ferramentas distribuídas.
-3. Teste o iniciador a partir de uma pasta limpa com os dados legalmente fornecidos pelo jogador.
-4. Registre os problemas conhecidos de gráficos, colisão e carregamento na release.
+1. Revise arquivos rastreados e o histórico: `.gitignore` não remove arquivos já rastreados nem apaga commits.
+2. Confirme que arquivos locais e dados do jogo não serão incluídos, inclusive código gerado e capturas antigas.
+3. Revise caminhos pessoais, segredos, licenças, autoria e direitos dos materiais de terceiros, inclusive a capa.
+4. Teste o iniciador a partir de uma pasta limpa com os dados legalmente fornecidos pelo jogador.
+5. Registre os problemas conhecidos de gráficos, colisão e carregamento na release.
 
 O repositório não contém uma licença global porque a situação de autoria e das dependências ainda precisa de revisão antes de uma publicação pública. Não presuma que o código ou os recursos possam ser reutilizados sem essa revisão.

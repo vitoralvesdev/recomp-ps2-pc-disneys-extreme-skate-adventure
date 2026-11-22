@@ -1170,10 +1170,16 @@ bool VU1InterpreterAccess::runLoopWith(VU1Interpreter &vu, uint8_t *vuCode, uint
     // Preserve the separately validated VU0 behavior and restore the caller mode.
     _mm_setcsr((previousCsr & ~0x6000u) | (vu.m_unit==VU1Interpreter::Unit::VU1 ? 0u : 0x6000u));
     const Vu1RunArgs args{vuData,dataSize,&gs,memory,codeSize,vu.m_cycle+maxCycles};
+    const uint32_t diagStartPc=vu.m_state.pc;
+    const uint32_t diagStartCycle=vu.m_cycle;
     const StepResult result=compiled(vu,args);
     if (result==StepResult::Fallback || result==StepResult::Continue)
         throw std::runtime_error("Native VU code reached an unsupported state; interpretation is forbidden");
     const bool ended=result==StepResult::Ended;
+    vu.m_diagLastRunStartPc=diagStartPc;
+    vu.m_diagLastProgramEnded=ended;
+    vu.m_diagLastBudgetHit=(result==StepResult::Budget);
+    vu.m_diagLastCyclesUsed=vu.m_cycle-diagStartCycle;
     if (ended) {
         vu.flushPipelines(); vu.m_state.ebit=false; vu.m_state.haltAfterDelaySlot=false;
         vu.m_pendingHaltD=false; vu.m_pendingHaltT=false;

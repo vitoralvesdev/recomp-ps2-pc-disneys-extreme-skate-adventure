@@ -62,6 +62,12 @@ public:
     VU1State &state() { return m_state; }
     const VU1State &state() const { return m_state; }
 
+    // Experiment 3 diagnostics: how the previous run() finished (no behavior change).
+    bool diagLastProgramEnded() const { return m_diagLastProgramEnded; }
+    bool diagLastBudgetHit() const { return m_diagLastBudgetHit; }
+    uint32_t diagLastCyclesUsed() const { return m_diagLastCyclesUsed; }
+    uint32_t diagLastRunStartPc() const { return m_diagLastRunStartPc; }
+
 private:
     enum Pipeline : uint8_t
     {
@@ -202,6 +208,10 @@ private:
 
     Unit m_unit;
     VU1State m_state;
+    bool m_diagLastProgramEnded = false;
+    bool m_diagLastBudgetHit = false;
+    uint32_t m_diagLastCyclesUsed = 0;
+    uint32_t m_diagLastRunStartPc = 0;
     std::array<DecodedInstructionPair, kMaxDecodedPairs> m_decodedCodeCache{};
     const uint8_t *m_cachedVuCode = nullptr;
     const PS2Memory *m_cachedMemory = nullptr;

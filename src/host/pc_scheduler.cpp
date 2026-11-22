@@ -397,7 +397,22 @@ void EeScheduler::postEvent(EeEvent event)
 
 bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
 {
-    accountCycles(cycles);
+    // Timer/IOP accounting does 64-bit divides and a GIF register lookup; doing
+    // it every 8 guest cycles dominates tight guest loops (level-load decoders
+    // spent >50% of wall time here). Accumulate and settle in ~256-cycle steps:
+    // the only observable difference is sub-microsecond timer granularity.
+    m_accountCycleCarry += std::max<uint64_t>(1u, cycles);
+    if (m_accountCycleCarry >= kAccountCycleBatch)
+    {
+        const uint64_t batch = m_accountCycleCarry;
+        m_accountCycleCarry = 0;
+        accountCycles(static_cast<uint32_t>(batch));
+    }
+    else if (!m_checkpointPending.load(std::memory_order_acquire) &&
+             !m_stopRequested.load(std::memory_order_acquire))
+    {
+        return false;
+    }
 
     if (m_checkpointPending.load(std::memory_order_acquire) ||
         m_stopRequested.load(std::memory_order_acquire))

@@ -34,7 +34,28 @@ void disneyAudioShutdown();
 
 #include "hang_diagnostics.h"
 #include "runtime/ps2_profile.h"
+#include "runtime/ps2_exp_trace.h"
 #include "../../native/original/graphics/gpu/native_gpu_stats.h"
+
+// Experiment 4: called only from the four recompiled VLQI/VSQI sites (see
+// ps2_exp_hooks.h). Reads both address spaces for the record; never writes.
+static PS2Runtime *g_expRuntime = nullptr;
+
+void ps2ExpVectorAccess(uint8_t *rdram, const R5900Context *ctx, uint32_t addr, const void *value16)
+{
+    if (!Ps2Exp::on(Ps2Exp::kVlqi))
+        return;
+    const uint8_t *vuMem = g_expRuntime ? g_expRuntime->memory().getVU0Data() : nullptr;
+    if (!vuMem)
+        return;
+    const uint32_t pc = ctx->pc;
+    const char *kind = (pc == 0x2D389Cu) ? "VLQI" : "VSQI";
+    const uint32_t offset = addr & 0x3FFFu;
+    const uint32_t vuOffset = offset & 0xFFFu; // VU0 data memory is 4 KB
+    Ps2Exp::registerFlush();
+    Ps2Exp::logVectorAccess(pc, kind, 1u, offset >> 4, offset, value16, rdram + offset, vuMem + vuOffset);
+}
+
 void disneyCaptureHostPadEvents();
 namespace disney::original { void diagnoseGifStreams(const void*); }
 namespace {
@@ -560,6 +581,7 @@ static void UploadFrame(Texture2D &tex, PS2Runtime *rt, uint32_t &outWidth, uint
 
 PS2Runtime::PS2Runtime()
 {
+    g_expRuntime = this;
     m_iopHost = std::make_unique<PS2IopHostAdapter>(*this);
     m_iopSubsystem = std::make_unique<ps2x::iop::IopSubsystem>(*m_iopHost);
 
@@ -799,6 +821,23 @@ bool PS2Runtime::syncCoreSubsystems()
                                                    m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
                                                    m_gs, &m_memory, startPC, top, itop, 65536);
                                      }
+                                     if (Ps2Exp::on(Ps2Exp::kBudget))
+                                     {
+                                         Ps2Exp::BudgetRow row;
+                                         row.unit = "VU1-MSCAL";
+                                         row.entryPc = startPC;
+                                         row.cyclesUsed = m_vu1.diagLastCyclesUsed();
+                                         row.startCycle = static_cast<uint32_t>(m_vu1.state().cycles) - row.cyclesUsed;
+                                         row.ended = m_vu1.diagLastProgramEnded();
+                                         row.budgetHit = m_vu1.diagLastBudgetHit();
+                                         row.ebit = m_vu1.state().ebit;
+                                         row.stoppedByD = m_vu1.state().stoppedByD;
+                                         row.stoppedByT = m_vu1.state().stoppedByT;
+                                         Ps2Exp::registerFlush();
+                                         Ps2Exp::logBudget(row);
+                                         Ps2Exp::logRun("VU1-MSCAL", startPC, row.startCycle, row.cyclesUsed,
+                                                        row.ended, row.budgetHit);
+                                     }
                                      const uint64_t jobsCycles=m_vu1.state().cycles-nativeBeforeCycles;
                                      Ps2Profile::vu1Cycles.fetch_add(jobsCycles,std::memory_order_relaxed);
                                      vu1JobSize(jobsCycles);
@@ -829,6 +868,23 @@ bool PS2Runtime::syncCoreSubsystems()
                                      m_vu1.resume(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE,
                                                   m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
                                                   m_gs, &m_memory, top, itop, 65536);
+                                     }
+                                     if (Ps2Exp::on(Ps2Exp::kBudget))
+                                     {
+                                         Ps2Exp::BudgetRow row;
+                                         row.unit = "VU1-MSCNT";
+                                         row.entryPc = m_vu1.diagLastRunStartPc();
+                                         row.cyclesUsed = m_vu1.diagLastCyclesUsed();
+                                         row.startCycle = static_cast<uint32_t>(m_vu1.state().cycles) - row.cyclesUsed;
+                                         row.ended = m_vu1.diagLastProgramEnded();
+                                         row.budgetHit = m_vu1.diagLastBudgetHit();
+                                         row.ebit = m_vu1.state().ebit;
+                                         row.stoppedByD = m_vu1.state().stoppedByD;
+                                         row.stoppedByT = m_vu1.state().stoppedByT;
+                                         Ps2Exp::registerFlush();
+                                         Ps2Exp::logBudget(row);
+                                         Ps2Exp::logRun("VU1-MSCNT", row.entryPc, row.startCycle, row.cyclesUsed,
+                                                        row.ended, row.budgetHit);
                                      }
                                      const uint64_t jobsCycles=m_vu1.state().cycles-nativeBeforeCycles;
                                      Ps2Profile::vu1Cycles.fetch_add(jobsCycles,std::memory_order_relaxed);
@@ -1550,6 +1606,35 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
 
     RecompiledFunction targetFn = lookupFunction(targetPc);
     const uint32_t entryPc = ctx->pc;
+
+    // Experiment 1: snapshot the two macro-mode helpers that own the only VSQRT/VDIV
+    // instructions in the recompiled EE code. Execution is untouched; values go to CSV.
+    const bool expMacro = Ps2Exp::on(Ps2Exp::kMacro) &&
+                          (targetPc == 0x2D2B90u || targetPc == 0x2D2E20u);
+    float expQIn = 0.0f;
+    float expIn[5][4]{};
+    float expOut[5][4]{};
+    uint32_t expInPtr = 0u, expOutPtr = 0u;
+    uint8_t expMemIn[16]{}, expMemOut[16]{};
+    bool expMemInValid = false, expMemOutValid = false;
+    uint32_t expRa = 0u;
+    if (expMacro)
+    {
+        expRa = GPR_U32(ctx, 31);
+        expQIn = ctx->vu0_q;
+        for (int reg = 0; reg < 5; ++reg)
+            _mm_storeu_ps(expIn[reg], ctx->vu0_vf[4 + reg]);
+        if (targetPc == 0x2D2B90u)
+        {
+            expInPtr = GPR_U32(ctx, 5) & 0x1FFFFFFFu;
+            if (expInPtr + 16u <= 0x2000000u)
+            {
+                std::memcpy(expMemIn, rdram + expInPtr, 16u);
+                expMemInValid = true;
+            }
+        }
+    }
+
     // Guest calls are resumable. Bound native recursion before invoking another
     // translated function, leaving PC at the target for the EE dispatcher.
     static thread_local unsigned guestCallDepth = 0u;
@@ -1564,6 +1649,26 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
         ~GuestCallDepthGuard() { --depth; }
     } depthGuard(guestCallDepth);
     targetFn(rdram, ctx, this);
+
+    if (expMacro)
+    {
+        for (int reg = 0; reg < 5; ++reg)
+            _mm_storeu_ps(expOut[reg], ctx->vu0_vf[4 + reg]);
+        if (targetPc == 0x2D2B90u)
+        {
+            expOutPtr = GPR_U32(ctx, 4) & 0x1FFFFFFFu;
+            if (expOutPtr + 16u <= 0x2000000u)
+            {
+                std::memcpy(expMemOut, rdram + expOutPtr, 16u);
+                expMemOutValid = true;
+            }
+        }
+        Ps2Exp::registerFlush();
+        Ps2Exp::logMacro(targetPc, expRa, expInPtr, expOutPtr,
+                         expMemInValid ? expMemIn : nullptr, expMemOutValid ? expMemOut : nullptr,
+                         expQIn, expIn[0], expIn[1], expIn[2], expIn[3], expIn[4],
+                         ctx->vu0_q, expOut[0], expOut[1], expOut[2], expOut[3], expOut[4]);
+    }
 
     if (isStopRequested() || ctx->pc == 0u)
     {
@@ -1606,6 +1711,44 @@ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint3
         return;
     }
 
+    // Experiments 2/3/4: capture the collision kernel inputs, the VU0 run outcome and
+    // (once) the VU0 data memory image that the port never feeds to VLQI/VSQI.
+    const bool expCollision = Ps2Exp::on(Ps2Exp::kCollision) && startPC == 0x7E8u;
+    const bool expBudget = Ps2Exp::on(Ps2Exp::kBudget);
+    Ps2Exp::CollisionRow collisionRow;
+    if (expCollision)
+    {
+        collisionRow.ra = GPR_U32(ctx, 31);
+        collisionRow.a0 = GPR_U32(ctx, 4);
+        collisionRow.a1 = GPR_U32(ctx, 5);
+        _mm_storeu_ps(collisionRow.vf4, ctx->vu0_vf[4]);
+        _mm_storeu_ps(collisionRow.vf5, ctx->vu0_vf[5]);
+        _mm_storeu_ps(collisionRow.vf6, ctx->vu0_vf[6]);
+        _mm_storeu_ps(collisionRow.vf7, ctx->vu0_vf[7]);
+        _mm_storeu_ps(collisionRow.vf8, ctx->vu0_vf[8]);
+        for (uint32_t i = 0; i < 16u; ++i)
+            collisionRow.vi[i] = ctx->vi[i];
+    }
+    if (Ps2Exp::on(Ps2Exp::kVlqi))
+    {
+        static bool dumped = false;
+        if (!dumped)
+        {
+            dumped = true;
+            char path[1024];
+            std::snprintf(path, sizeof(path), "%s/exp4-vu0mem-vs-rdram.bin", Ps2Exp::outputDir());
+            if (std::FILE *file = std::fopen(path, "wb"))
+            {
+                const uint32_t header[2] = {PS2_VU0_DATA_SIZE, 0x2000000u};
+                std::fwrite(header, sizeof(header), 1, file);
+                std::fwrite(vu0Data, 1, PS2_VU0_DATA_SIZE, file);
+                std::fwrite(rdram, 1, PS2_VU0_DATA_SIZE, file);
+                std::fclose(file);
+                std::fprintf(stderr, "[exp4] dumped VU0 data memory vs RDRAM to %s\n", path);
+            }
+        }
+    }
+
     const auto vu0Start = DisneyHang::enabled() ? std::chrono::steady_clock::now()
                                                 : std::chrono::steady_clock::time_point{};
     m_vu0.reset();
@@ -1615,6 +1758,35 @@ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint3
                   m_gs, &m_memory,
                   startPC, 0u, ctx->vu0_itop, 4096);
     copyVu0StateToContext(m_vu0.state(), ctx);
+
+    if (expCollision)
+    {
+        collisionRow.hit = static_cast<int16_t>(m_vu0.state().vi[2]);
+        collisionRow.t = m_vu0.state().vf[17][0];
+        collisionRow.q = m_vu0.state().q;
+        collisionRow.cycles = m_vu0.diagLastCyclesUsed();
+        collisionRow.ended = m_vu0.diagLastProgramEnded();
+        collisionRow.budgetHit = m_vu0.diagLastBudgetHit();
+        Ps2Exp::registerFlush();
+        Ps2Exp::logCollision(collisionRow);
+    }
+    if (expBudget)
+    {
+        Ps2Exp::BudgetRow row;
+        row.unit = "VU0";
+        row.entryPc = startPC;
+        row.startCycle = static_cast<uint32_t>(m_vu0.state().cycles) - m_vu0.diagLastCyclesUsed();
+        row.cyclesUsed = m_vu0.diagLastCyclesUsed();
+        row.ended = m_vu0.diagLastProgramEnded();
+        row.budgetHit = m_vu0.diagLastBudgetHit();
+        row.ebit = m_vu0.state().ebit;
+        row.stoppedByD = m_vu0.state().stoppedByD;
+        row.stoppedByT = m_vu0.state().stoppedByT;
+        row.vu0Tpc = ctx->vu0_tpc;
+        Ps2Exp::registerFlush();
+        Ps2Exp::logBudget(row);
+        Ps2Exp::logRun("VU0", startPC, row.startCycle, row.cyclesUsed, row.ended, row.budgetHit);
+    }
     if (DisneyHang::enabled())
     {
         DisneyHang::vu0Timing(std::chrono::steady_clock::now() - vu0Start);

@@ -5,10 +5,54 @@
 /mc0/
 /mc1/
 
+# Imagens de disco, dados do jogo e dumps, mesmo fora das pastas acima.
+*.[iI][sS][oO]
+*.[cC][hH][dD]
+*.[cC][sS][oO]
+*.[zZ][sS][oO]
+*.[cC][uU][eE]
+*.[iI][mM][gG]
+*.[mM][dD][fF]
+*.[mM][dD][sS]
+*.[nN][rR][gG]
+*.[bB][iI][nN]
+*.[eE][lL][fF]
+*.[iI][rR][xX]
+*.[wW][aA][dD]
+*.[hH][eE][dD]
+*.[pP][sS][sS]
+*.[vV][aA][gG]
+*.[wW][aA][vV]
+*.[pP][cC][mM]
+SLUS_206.07
+*.zip
+*.7z
+*.rar
+*.ram
+*.vram
+*.dump
+*.dmp
+
+# Credenciais e configurações privadas.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.kdbx
+id_rsa
+id_ed25519
+.npmrc
+.pypirc
+
 # Produtos de compilação, runtimes distribuíveis e capturas de diagnóstico.
 /build/
 /dist/
 /runtime/
+/publicacao-candidata/
 *.exe
 *.dll
 *.pdb
@@ -28,6 +72,16 @@ analysis/*.bin
 analysis/*.log
 analysis/game-session.log
 analysis/render-vu1-*.bin
+# Capturas permanecem locais; apenas a capa enviada foi selecionada para a documentação.
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.pgm
+*.ppm
+!/docs/capa-jogo.png
+*.log
 boot-*.png
 /*.ppm
 /session-*.png
@@ -45,6 +99,8 @@ Desktop.ini
 recomp/output/
 src/generated-*/
 src/recovered/
+/src/host/recovered_functions.cpp
+/recomp/recovered-overlap-entries.json
 # Codigo de convidado gerado a partir dos modulos IRX e do microcodigo do jogo.
 native/original/iop/generated/
 native/original/vu/generated/
