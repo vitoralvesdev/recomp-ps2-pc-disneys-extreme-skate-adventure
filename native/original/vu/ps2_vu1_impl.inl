@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <emmintrin.h>
+#include <smmintrin.h>
 #include <limits>
 #include <string>
 #include <vector>
@@ -1630,13 +1631,11 @@ struct VU1InterpreterAccess
     static VU1_FORCE_INLINE __m128 vnorm(__m128 value)
     {
         const __m128i bits = _mm_castps_si128(value);
-        const __m128i exponent = _mm_and_si128(bits, _mm_set1_epi32(0x7F800000));
         const __m128i sign = _mm_and_si128(bits, _mm_set1_epi32(static_cast<int>(0x80000000u)));
-        const __m128i zero = _mm_cmpeq_epi32(exponent, _mm_setzero_si128());
-        const __m128i huge = _mm_cmpeq_epi32(exponent, _mm_set1_epi32(0x7F800000));
-        __m128i result = _mm_or_si128(_mm_andnot_si128(zero, bits), _mm_and_si128(zero, sign));
-        result = _mm_or_si128(_mm_andnot_si128(huge, result),
-                              _mm_and_si128(huge, _mm_or_si128(sign, _mm_set1_epi32(0x7F7FFFFF))));
+        const __m128i magnitude = _mm_and_si128(bits, _mm_set1_epi32(0x7fffffff));
+        const __m128i zero = _mm_cmpgt_epi32(_mm_set1_epi32(0x00800000), magnitude);
+        const __m128i clamped = _mm_min_epu32(magnitude, _mm_set1_epi32(0x7f7fffff));
+        const __m128i result = _mm_or_si128(sign, _mm_andnot_si128(zero, clamped));
         return _mm_castsi128_ps(result);
     }
 

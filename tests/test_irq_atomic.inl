@@ -2,10 +2,16 @@
 // a ready thread must not run in the middle of a native interrupt invocation.
 static int atomicIrqStage=0,atomicIrqChild=0;
 static void atomicIrqChildEntry(uint8_t*,R5900Context* ctx,PS2Runtime*) {
+#if defined(DISNEY_TEST_ORIGINAL_AOT)
+ checkVu0Constant(*ctx,"new guest thread starts with constant VF0");
+#endif
  check(atomicIrqStage==2,"interrupt completes before a higher-priority ready thread runs");
  atomicIrqStage=3;ctx->pc=0;
 }
 static void atomicIrqFirst(uint8_t*,R5900Context* ctx,PS2Runtime* rt) {
+#if defined(DISNEY_TEST_ORIGINAL_AOT)
+ checkVu0Constant(*ctx,"interrupt context starts with constant VF0");
+#endif
  atomicIrqStage=1;
  check(rt->eeScheduler().startThread(atomicIrqChild,0,*ctx,true)==0,"wake competing thread inside interrupt");
  ctx->pc=0x102cu;

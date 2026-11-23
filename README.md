@@ -26,7 +26,7 @@ O iniciador valida o pacote, ajusta o ambiente, abre a janela com o título do j
 
 ## Status de desenvolvimento
 
-Baseado nos registros locais de **06/11/2026**; os resultados podem variar entre computadores.
+Baseado na última melhoria de desempenho e nas medições locais de **23/11/2026**; os resultados podem variar entre computadores.
 O projeto ainda não foi validado do início ao fim.
 
 | Área | Situação | O que funciona ou falta |
@@ -34,76 +34,54 @@ O projeto ainda não foi validado do início ao fim.
 | Inicialização e menus | Funciona nos testes | Menu e seleção de personagem aparecem nas sessões registradas. |
 | Entrada em fase | Funciona nos testes | Há registros do HUB e de entrada em uma fase de Toy Story; outras fases precisam de testes. |
 | Teclado e controle | Funciona, precisa melhorar | Há mapeamento de teclado e controle; compatibilidade com todos os modelos não foi validada. |
-| Gameplay e desempenho | Funciona, precisa melhorar | Em uma sessão no HUB foram registrados aproximadamente 18–27 quadros lógicos/s; otimização continua necessária. |
-| Áudio | Funciona, precisa melhorar | Sons e músicas foram iniciados nos registros; alguns bancos falham ao carregar e falta validar todas as fases. |
+| Gameplay e desempenho | Melhora significativa; em validação | **59,98 FPS lógicos em média** em Toy Story Bedroom (8 amostras entre 8400–10500 frames; faixa 59,82–60,14). Menu permanece perto de 60 FPS. Outras fases e comparação controlada com o HUB ainda precisam de validação. |
+| Áudio | Funciona, precisa melhorar | Sons e músicas foram iniciados nos registros. O log recente mostra WAVs de efeitos vazios no catálogo (por exemplo, alguns sons Conc/Metal); a recuperação desses recursos ainda falta. |
 | Gráficos | Funciona, precisa melhorar | Menu e cenas aparecem; testes sintéticos de textura passaram, mas fidelidade geral e blending precisam de validação. |
-| Colisão | Problemas conhecidos | Há relatos de rampas e objetos com colisão incorreta; a causa ainda precisa de investigação. |
+| Colisão | Dados do protótipo ampliados; gameplay ainda não validado | O preparador agora converte os arquivos COL v8 de todas as fases extraídas. A equivalência da colisão em gameplay e os relatos de rampas/objetos ainda precisam de validação. |
 | Carregamento | Problemas conhecidos | Algumas fases podem parar ao carregar; houve uma espera inicial longa nos testes. |
 | Vídeos e cutscenes | Pendente de validação | O decodificador está ligado, mas as cutscenes não foram validadas no fluxo recente. |
 | Saves | Pendente de validação completa | Há teste isolado do serviço, mas falta confirmar salvar e carregar uma partida completa. |
 | Instalação e compilação limpa | Pendente | Ainda não há procedimento completo validado para gerar todos os arquivos necessários a partir de um clone novo. |
 
-### Otimização mais recente (06/11/2026)
+### Melhoria de FPS em gameplay (23/11/2026)
 
-A entrega das primitivas GS para a thread de GPU era feita uma a uma: cada uma das ~31 mil
-primitivas por frame travava um mutex, alocava um nó de fila e acordava o worker. Isso consumia
-**25% do frame**. As primitivas agora são acumuladas e entregues em blocos de 256, preservando a
-ordem dos comandos.
+O runtime AOT recebeu a correção de inicialização do registrador constante VF0 e dos acessos
+EE à memória de dados do VU0, além do ajuste SIMD da normalização VU. Com esses ajustes, a
+sessão instrumentada em `ToyStory_Bedroom` chegou perto do limite de 60 FPS lógicos durante
+todo o trecho de gameplay amostrado. A medição confirma melhora expressiva nessa fase; ainda
+falta repetir o mesmo benchmark controlado no HUB e nas demais fases para estabelecer o ganho
+geral do projeto.
 
-| Métrica (frame 10500, mesma cena) | Antes | Depois |
-| --- | --- | --- |
-| FPS de gameplay | 17,06 | **21,69** |
-| Tempo de GIF/GS no frame | 30% | **15%** |
-| Hand-off GS (batch) | 25% | **9%** |
+| Métrica instrumentada em ToyStory_Bedroom | Média (8 amostras, frames 8400–10500) |
+| --- | ---: |
+| FPS lógico | 59,98 (59,82–60,14) |
+| VIF1 | 36,9% |
+| VU1 | 26,2% |
+| GIF/GS | 9,4% |
+| Worker GPU ocupado | 72,4% |
+| Espera de GPU | 25,5% |
 
-### Amostragem de textura GS (06/11/2026)
-
-O backend OpenGL aplicava meio pixel de deslocamento nas coordenadas dos atributos e não
-quantizava as coordenadas FST em 1/16 de texel, como o GS faz. O resultado era uma divergência
-sistemática no filtro bilinear: **2.304 pixels** com erro máximo de canal 24.
-
-A posição dos vértices agora vai exatamente para as coordenadas GS, as coordenadas FST são
-arredondadas para 1/16 de texel no shader e o clamp de UV passou a usar centros de pixel. As
-chamadas de limpeza de profundidade/espelho e as linhas foram ajustadas para manter a mesma
-geometria.
-
-| Teste de contrato GPU | Antes | Depois |
-| --- | --- | --- |
-| Textura RGBA com filtro linear | 2.304 px divergentes (erro 24) | **0 px (erro 0)** |
-| Sprite plano, textura RGBA, PSMT8, alpha de framebuffer | 0 px | **0 px** |
-| Profundidade compartilhada entre alvos | 0 diferenças | **0 diferenças** |
-| Limpeza de cor/profundidade e alias Z32/cor | 0 diferenças | **0 diferenças** |
-
-A sessão de validação de 10.500 frames confirmou que a correção não regrediu menu, seleção de
-personagem, carregamento nem gameplay.
-
-### Perfil de desempenho medido (06/11/2026)
-
-Sessão de 10.500 frames no hub, com o build final:
-
-| Métrica | Menu | Gameplay no hub |
-| --- | --- | --- |
-| FPS lógico | 59–60 | **18,3–27,2** |
-| CPU do jogo (thread EE) | ~100% | 90–94% |
-| VU1 recompilado | ~14% | **32–42%** |
-| Unpack do VIF1 | ~19% | **45–54%** |
-| Decode GIF/GS | ~6% | **17–22%** |
-| Thread de GPU ocupada | ~74% | **67–75%** |
-| Jobs VU1 | — | **~29 mil/s** |
-| Submissões GS | — | **~666 mil/s** |
-
-O gargalo restante é a execução do código do jogo no EE: VU1 recompilado, unpack do VIF1 e
-decode GIF/GS. A thread de GPU fica mais de 60% ocupada, com dezenas de milhares de primitivas
-GS por frame.
+O log confirmou `Loading Scene ToyStory_Bedroom ...... done`, `CAREER_STARTED` e `starting a run`.
+As oito amostras de gameplay foram coletadas entre os frames 8400 e 10500. Como a sessão usou
+instrumentação e uma fase diferente dos registros anteriores, os números abaixo documentam o
+resultado observado; uma comparação A/B geral ainda requer repetir o cenário antigo com o mesmo
+build e configuração.
 
 ### Problemas conhecidos
 
-- Gameplay em ~18–27 fps (média ~21 fps); menu a 60 fps.
+- O FPS das fases além de Toy Story Bedroom ainda precisa de uma medição controlada após a
+  melhoria de 23/11/2026.
 - Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
+  A sessão de diagnóstico `analysis/audio-trace-run/session.log` confirma ausência de entradas
+  em lógica/desenho nesse intervalo; o PC quente `0x002750a8` foi verificado no Ghidra e é uma
+  leitura de timer, portanto não identifica a causa. As leituras dos arquivos de fase são
+  registradas como 0 ms; o trabalho síncrono de parsing/construção no loader ainda precisa de
+  uma medição dedicada por etapa.
 - Áudio validado no menu e no hub; alguns bancos de som de fase ainda registram
-  `couldn't load` no log durante o carregamento.
+  `couldn't load` no log durante o carregamento. A inspeção confirmou que vários WAVs
+  correspondentes no catálogo têm tamanho zero; os sons de origem precisam ser recuperados.
 - Cutscenes em vídeo (`.PSS`) ainda não foram exercitadas pelo fluxo testado.
-- Algumas rampas e objetos sem colisão correta, principalmente nas fases de Toy Story.
+- Colisão de rampas e objetos no jogo recompilado ainda não validada, principalmente nas fases de Toy Story. O kernel VU0 de interseção conferiu em 120 mil chamadas registradas, mas o caso visual problemático não aparece nesse corpus. O protótipo nativo agora pode preparar os COL v8 de todas as fases; isso não comprova correção no runtime do jogo.
 - Algumas fases podem parar durante o carregamento.
 
 Relate defeitos informando a fase, o personagem, a ação que reproduz o problema e o log

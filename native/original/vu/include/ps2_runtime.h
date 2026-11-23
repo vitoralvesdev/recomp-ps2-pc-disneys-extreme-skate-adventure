@@ -149,6 +149,7 @@ struct alignas(16) R5900Context
         std::memset(this, 0, sizeof(*this));
 
         // Initialize VU0 registers
+        vu0_vf[0] = _mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f);
         vu0_q = 1.0f; // Q register usually initialized to 1.0
 
         // Reset COP0 registers
@@ -437,6 +438,29 @@ public:
 
     inline PS2Memory &memory() { return m_memory; }
     inline const PS2Memory &memory() const { return m_memory; }
+
+    // VU0 data memory is only reachable from the EE through the macro-mode
+    // VLQI/VSQI/VLQD/VSQD instructions. Their address is a byte offset in the
+    // 4 KB VU0 data memory (the low 12 bits of the VU qword address); the
+    // upper address bits wrap. Keep every accessor bounds-safe so a guest
+    // program cannot read or write host memory through an oversized index.
+    inline __m128 readVu0Data(uint32_t byteAddress)
+    {
+        const uint8_t *data = m_memory.getVU0Data();
+        if (!data)
+            return _mm_setzero_ps();
+        return _mm_loadu_ps(reinterpret_cast<const float *>(
+            data + (byteAddress & (PS2_VU0_DATA_SIZE - 1u))));
+    }
+
+    inline void writeVu0Data(uint32_t byteAddress, __m128 value)
+    {
+        uint8_t *data = m_memory.getVU0Data();
+        if (!data)
+            return;
+        _mm_storeu_ps(reinterpret_cast<float *>(
+            data + (byteAddress & (PS2_VU0_DATA_SIZE - 1u))), value);
+    }
 
     inline GS &gs() { return m_gs; }
     inline const GS &gs() const { return m_gs; }
