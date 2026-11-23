@@ -1,4 +1,4 @@
-name: Windows source build
+name: Windows launcher build
 
 on:
   push:
@@ -6,11 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  launcher:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - name: Configure tracked source build
-        run: cmake -S . -B build/ci -A x64
-      - name: Build launcher and source tools
-        run: cmake --build build/ci --config Release --parallel 2
+      - name: Configure launcher-only build
+        run: cmake -S . -B build/ci -A x64 -DDISNEY_BUILD_LAUNCHER_ONLY=ON
+      - name: Build launcher and tests
+        run: cmake --build build/ci --config Release --target DisneySkateLauncher DisneyLauncherTests --parallel 2
+      - name: Run launcher tests
+        run: ctest --test-dir build/ci -C Release --output-on-failure
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: disney-skate-launcher
+          path: "Disney's Extreme Skate Adventure.exe"
+          if-no-files-found: error

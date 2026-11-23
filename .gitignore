@@ -88,6 +88,9 @@ boot-*.png
 /native-aot-frame-*.png
 /smoke_*.log
 
+# Diretorio temporario usado pelos testes do launcher.
+/launcher-tests-work/
+
 # Estado de IDE/SO.
 .vs/
 *.user

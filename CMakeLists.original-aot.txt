@@ -15,9 +15,9 @@ target_sources(runtime_flow_test PRIVATE
 target_include_directories(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra")
 target_compile_definitions(runtime_flow_test PRIVATE DISNEY_TEST_ORIGINAL_AOT)
 target_precompile_headers(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include/ps2_runtime.h")
-set(native_iop_library "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib")
+set(native_iop_library "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib" CACHE FILEPATH "Prebuilt Disney original IOP library")
 if(NOT EXISTS "${native_iop_library}")
- message(FATAL_ERROR "Build scripts/Testar-Inicializacao-Original.ps1 before configuring the AOT candidate")
+ message(FATAL_ERROR "Missing DisneyOriginalIop library at '${native_iop_library}'. Build it with scripts/Testar-Inicializacao-Original.ps1 or set DISNEY_ORIGINAL_IOP_LIBRARY.")
 endif()
 add_library(DisneyOriginalIop STATIC IMPORTED)
 set_target_properties(DisneyOriginalIop PROPERTIES IMPORTED_LOCATION "${native_iop_library}"
@@ -38,10 +38,11 @@ target_sources(ps2_runtime PRIVATE native/original/vu/ps2_vu1_core.cpp ${vu_sour
 target_include_directories(ps2_runtime BEFORE PUBLIC
  "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include")
 target_include_directories(ps2_runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu")
+set(disney_runtime_output_dir "${CMAKE_SOURCE_DIR}/runtime" CACHE PATH "Output directory for the original AOT runtime and media DLLs")
 set_target_properties(ps2EntryRunner PROPERTIES OUTPUT_NAME DisneySkateRuntime
- RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/runtime")
+ RUNTIME_OUTPUT_DIRECTORY "${disney_runtime_output_dir}")
 foreach(cfg DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
- set_target_properties(ps2EntryRunner PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${cfg} "${CMAKE_SOURCE_DIR}/runtime")
+ set_target_properties(ps2EntryRunner PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${cfg} "${disney_runtime_output_dir}")
 endforeach()
 
 add_executable(DisneyOriginalGraphicsReplay tests/native_original_graphics_replay.cpp)

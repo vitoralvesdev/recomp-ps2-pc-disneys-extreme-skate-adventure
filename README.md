@@ -20,11 +20,13 @@ O projeto combina quatro camadas próprias:
 | GPU | GS (Graphics Synthesizer) traduzido para OpenGL 3.3, com merge de batches e apresentação em janela |
 | Mídia | Áudio nativo e IOP reimplementados no host; decodificador de vídeo ligado, cutscenes ainda não validadas |
 
-O projeto inclui um assistente gráfico de instalação para selecionar uma ISO local, extrair e
-validar os arquivos esperados e chamar as etapas existentes de preparação e compilação. Depois
-de preparado, o launcher valida o pacote, ajusta o ambiente, abre a janela do jogo e inicia o
-runtime. A instalação completa ainda depende de ferramentas e arquivos gerados que não estão no
-repositório; o assistente informa quando uma etapa indisponível impede a conclusão.
+O projeto inclui um **launcher nativo** em C++/Win32 para instalar e abrir o jogo. Na primeira
+execução ele valida a ISO americana (`SLUS_206.07`), lê a ISO9660 sem depender de 7-Zip, extrai
+os arquivos de forma incremental e mostra o progresso real da preparação. Depois de preparado, o
+launcher valida o pacote, ajusta o renderer, a escala e a pasta de saves, abre a janela do jogo e
+acompanha a sessão. A instalação completa ainda depende de ferramentas e arquivos gerados que não
+estão no repositório; o launcher informa exatamente qual etapa indisponível impediu a conclusão.
+Detalhes em [docs/launcher.md](docs/launcher.md).
 
 ---
 
@@ -45,8 +47,8 @@ O projeto ainda não foi validado do início ao fim.
 | Carregamento | Problemas conhecidos | Algumas fases podem parar ao carregar; houve uma espera inicial longa nos testes. |
 | Vídeos e cutscenes | Pendente de validação | O decodificador está ligado, mas as cutscenes não foram validadas no fluxo recente. |
 | Saves | Pendente de validação completa | Há teste isolado do serviço, mas falta confirmar salvar e carregar uma partida completa. |
-| Build limpo do código versionado | Passou localmente em checkout isolado | O launcher oficial, o conversor e o núcleo versionado compilaram sem `tools/`, ISO ou fontes ignoradas; o runtime AOT completo ainda não compila de um clone limpo. Workflow Windows adicionado, aguardando execução remota. |
-| Assistente de instalação | Experimental, não validado de ponta a ponta | Extrai e verifica arquivos de uma ISO USA e chama os scripts locais. A geração do catálogo de áudio e alguns pré-requisitos de compilação ainda dependem do ambiente de desenvolvimento. |
+| Build limpo do código versionado | Launcher passou localmente e em CI | O alvo `DISNEY_BUILD_LAUNCHER_ONLY=ON` compila somente o launcher e seus testes, sem `tools/`, ISO, raylib ou fontes geradas. O runtime AOT completo ainda não compila de um clone limpo. |
+| Launcher nativo e instalação | Funcional no ambiente local; empacotamento pendente | Valida a ISO NTSC-U, extrai 42 arquivos (2,16 GB) com progresso, detecta dados já prontos, configura o runtime, abre e acompanha o jogo, salva configurações e mostra logs. A preparação de assets e a compilação do runtime ainda usam os scripts locais; Setup.exe e download de ferramentas não foram implementados. |
 
 ### Melhoria de FPS em gameplay (23/11/2026)
 
@@ -77,13 +79,8 @@ build e configuração.
 - O FPS das fases além de Toy Story Bedroom ainda precisa de uma medição controlada após a
   melhoria de 23/11/2026.
 - Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
-- Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
-- Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
-  A sessão de diagnóstico `analysis/audio-trace-run/session.log` confirma ausência de entradas
-  em lógica/desenho nesse intervalo; o PC quente `0x002750a8` foi verificado no Ghidra e é uma
-  leitura de timer, portanto não identifica a causa. As leituras dos arquivos de fase são
-  registradas como 0 ms; o trabalho síncrono de parsing/construção no loader ainda precisa de
-  uma medição dedicada por etapa.
+  A causa ainda não foi isolada. Leituras dos arquivos de fase foram registradas como 0 ms;
+  falta medir o trabalho síncrono de parsing/construção do loader por etapa.
 - Áudio validado no menu e no hub; alguns bancos de som de fase ainda registram
   `couldn't load` no log durante o carregamento. A inspeção confirmou que vários WAVs
   correspondentes no catálogo têm tamanho zero; os sons de origem precisam ser recuperados.
@@ -100,41 +97,58 @@ originais do jogo.**
 ## Instalação e execução
 
 **O repositório não inclui o executável pronto, o runtime nem os dados do jogo.** É necessária
-uma cópia legal da edição americana de PS2. O assistente ainda é experimental: automatiza a
-extração da ISO e chama as rotinas de preparação/compilação existentes, mas não torna o processo
-reproduzível num clone limpo. Ferramentas locais, fontes geradas e o catálogo de áudio podem
-estar ausentes.
+uma cópia legal da edição americana de PS2. O launcher compila sem os dados, mas a preparação dos
+assets e a compilação do runtime ainda dependem dos scripts e de fontes geradas do ambiente de
+desenvolvimento; um clone limpo não conclui a instalação sozinho.
 
-### 1. Abra o assistente
+### 1. Obtenha ou compile o launcher
 
-No Windows, com PowerShell 5.1 ou superior, execute na raiz do projeto:
+Para desenvolver, compile somente o launcher (não exige ISO, raylib, PS2Recomp nem código AOT):
 
 ```powershell
-powershell -STA -ExecutionPolicy Bypass -File .\scripts\Instalar-DisneySkate.ps1
+.\scripts\Compilar-Launcher.ps1
 ```
 
-Selecione a ISO USA. O assistente usa 7-Zip (incluído em `tools/7-Zip` no ambiente local ou
-disponível no `PATH`), confere o executável `SLUS_206.07`, os arquivos HED/WAD e os módulos IOP,
-e copia os arquivos extraídos para `original/extracted/`. Em seguida, tenta preparar os dados
-nativos e compilar o runtime. O log da extração fica em `analysis/installer-7zip.log`.
+O executável é gerado na raiz como `Disney's Extreme Skate Adventure.exe`. O script também roda
+os testes do launcher. Para testar com uma ISO local:
 
-O assistente não verifica o hash da ISO; valida a presença dos arquivos esperados da edição USA.
-Ele não cria o catálogo `assets/native/audio/catalog.tsv`. Se esse catálogo, ferramentas locais,
-ou código gerado estiverem ausentes, a etapa correspondente falha e mostra o motivo. A extração
-é local: não há download da ISO nem dos dados do jogo.
+```powershell
+.\scripts\Compilar-Launcher.ps1 -Iso "C:\Jogos\Disney's Extreme Skate Adventure (USA).iso"
+```
 
-### 2. Jogue após preparar um pacote válido
+### 2. Primeira execução
 
-Quando o runtime e os assets estiverem presentes, dê **duplo clique em
-`Disney's Extreme Skate Adventure.exe`** (ou em `Jogar.cmd`). O launcher confere o pacote,
-configura o renderer e abre o jogo na janela com o título **Disney's Extreme Skate Adventure**.
+Dê **duplo clique em `Disney's Extreme Skate Adventure.exe`**. A tela inicial mostra o estado dos
+componentes e permite:
 
-Opções do iniciador:
+1. **Selecionar ISO** — escolha a imagem americana de PlayStation 2 (NTSC-U).
+2. O launcher valida `SYSTEM.CNF`, a serial `SLUS_206.07`, a região, o ELF MIPS e os arquivos de
+   dados antes de escrever qualquer coisa.
+3. **Instalar jogo** — as cinco etapas aparecem com progresso real: verificar imagem, extrair
+   dados, preparar assets, preparar runtime e verificar o pacote.
+4. **JOGAR** — quando o pacote está pronto.
+
+A extração lê a própria ISO9660, sem 7-Zip, e é incremental: arquivos já presentes com o tamanho
+esperado não são copiados de novo. São cerca de 2,16 GB de dados extraídos; reserve ao menos
+2,3 GB livres. A ISO não é copiada nem enviada. Em um checkout, os arquivos vão para
+`original/extracted/`; em uma instalação, para `%LOCALAPPDATA%\HighSky\DisneySkate\game`, com
+saves e logs fora da pasta do programa.
+
+### 3. Execução e diagnóstico
+
+Com o pacote pronto, o launcher configura renderer, escala interna, V-Sync, pasta de saves e
+diagnósticos, abre o runtime e mostra quando o jogo está em execução. Ao fechar o jogo, o launcher
+volta ao estado pronto.
+
+Opções de linha de comando:
 
 | Comando | Efeito |
 | --- | --- |
-| `"Disney's Extreme Skate Adventure.exe" --verificar` | Verifica apenas a presença dos arquivos exigidos e retorna um código de saída; não testa a integridade nem o gameplay |
-| `"Disney's Extreme Skate Adventure.exe" --diagnostico` | Sessão normal gravando evidências em `analysis/hang-reports` |
+| `"Disney's Extreme Skate Adventure.exe" --verificar` | Verifica o pacote e retorna 0 (pronto) ou 2 (incompleto); não testa gameplay |
+| `"Disney's Extreme Skate Adventure.exe" --iso <imagem> --verificar` | Valida somente a ISO escolhida |
+| `"Disney's Extreme Skate Adventure.exe" --instalar <imagem>` | Instala sem interface, útil para automação |
+| `"Disney's Extreme Skate Adventure.exe" --diagnostico` | Sessão normal com relatórios em `analysis/hang-reports` |
+| `"Disney's Extreme Skate Adventure.exe" --versao` | Mostra a versão do launcher |
 
 Também é possível abrir o runtime diretamente, a partir da raiz do projeto:
 
@@ -142,7 +156,19 @@ Também é possível abrir o runtime diretamente, a partir da raiz do projeto:
 runtime\DisneySkateRuntime.exe original\extracted\SLUS_206.07
 ```
 
-### 3. Se o jogo não abrir
+### 4. Instalador opcional
+
+Com o Inno Setup 6 instalado, é possível gerar um `Setup.exe` que instala o launcher, o runtime,
+a documentação e os atalhos, sem incluir ISO, dados do jogo ou assets:
+
+```powershell
+.\scripts\Empacotar-Instalador.ps1
+```
+
+O resultado fica em `dist\DisneySkateSetup-0.3.0.exe`. O instalador ainda não é assinado e não
+resolve a preparação de assets: essa etapa continua sendo feita localmente a partir da ISO.
+
+### 5. Se o jogo não abrir
 
 O pacote local precisa das DLLs de mídia usadas pelo runtime. Em um Windows limpo, se aparecer uma mensagem
 citando `VCRUNTIME140.dll` ou `MSVCP140.dll`, instale o **Microsoft Visual C++ Redistributable x64**
@@ -152,8 +178,10 @@ mais recente e reinicie o jogo:
 
 Atualize também o driver da GPU pelo fabricante. O runtime usa **OpenGL 3.3**.
 
-O iniciador grava `analysis/game-session.log` na raiz do projeto. Esse arquivo e a pasta `analysis/`
-são locais, ignorados pelo Git.
+O launcher grava `analysis\launcher.log`, `analysis\game-session.log` e os relatórios de
+travamento. Em uma instalação, os mesmos arquivos ficam em
+`%LOCALAPPDATA%\HighSky\DisneySkate\logs`. A tela **Logs e diagnóstico** mostra os dois logs e
+permite copiar um resumo. Esses arquivos são locais e ignorados pelo Git.
 
 ### Controles
 
@@ -175,8 +203,9 @@ o controle e ainda precisa de mais testes.
 
 ### Requisitos
 
-O alvo atual é **Windows x64** com GPU e drivers compatíveis com **OpenGL 3.3**. Os requisitos
-mínimos de processador, memória e espaço ainda não foram validados em diferentes computadores.
+O alvo atual é **Windows x64** com GPU e drivers compatíveis com **OpenGL 3.3**. Reserve cerca de
+**2,3 GB livres** para os dados extraídos da ISO. Os requisitos mínimos de processador e memória
+ainda não foram validados em diferentes computadores.
 
 ---
 
@@ -184,7 +213,7 @@ mínimos de processador, memória e espaço ainda não foram validados em difere
 
 ```text
 src/host/          Runtime do host: loop principal, scheduler, memória, IRQs, bridges, áudio/vídeo
-src/launcher/      Iniciador Windows (validação do pacote e janela do jogo)
+src/launcher/      Launcher Win32: ISO9660, validação, instalação, interface, configurações e logs
 native/original/   Port nativo: GS/OpenGL, VIF/GIF, VU, IOP, áudio, input, oclusão
 native/            Conversor de assets e testes nativos de colisão
 tests/             Testes do runtime e dos drivers gráficos
@@ -211,18 +240,28 @@ nem apaga o histórico**. Revise a lista e os commits antes de publicar. Consult
 
 ## Desenvolvimento
 
-O build padrão do launcher e das ferramentas versionadas foi compilado em uma cópia isolada do
-checkout, sem os diretórios locais ignorados. O workflow Windows está preparado para executar a
-mesma compilação em CI, mas ainda precisa de uma execução remota para comprovar outro ambiente.
-Isso não valida nem compila o runtime AOT completo. Ele ainda depende de PS2Recomp, bibliotecas,
-dados de jogo e código recompilado ausentes de um clone limpo.
+O launcher tem um build isolado e reproduzível, sem ISO, raylib, PS2Recomp ou código AOT:
+
+```powershell
+.\scripts\Compilar-Launcher.ps1
+# ou:
+cmake -S . -B build/launcher -G "Visual Studio 17 2022" -A x64 -DDISNEY_BUILD_LAUNCHER_ONLY=ON
+cmake --build build/launcher --config Release --target DisneySkateLauncher DisneyLauncherTests --parallel 2
+ctest --test-dir build/launcher -C Release --output-on-failure
+```
+
+O workflow Windows executa esse mesmo alvo e os testes. A arquitetura e o fluxo de instalação
+estão em [docs/launcher.md](docs/launcher.md).
+
+O runtime AOT completo continua não reproduzível em um clone limpo: ele depende de PS2Recomp,
+bibliotecas, dados de jogo e código recompilado gerados localmente. O comando histórico abaixo
+funciona apenas no ambiente de desenvolvimento existente:
 
 ```powershell
 .\scripts\Compilar-Candidato-Original.ps1
 ```
 
-O comando acima foi usado no ambiente de desenvolvimento existente e pode não funcionar em um
-clone limpo. Veja [docs/BUILDING.md](docs/BUILDING.md); a documentação de
+Veja [docs/BUILDING.md](docs/BUILDING.md); a documentação de
 [arquitetura](docs/arquitetura-nativa.md) descreve também uma etapa histórica do projeto.
 
 ## Como colaborar

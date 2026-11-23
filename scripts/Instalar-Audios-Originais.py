@@ -4,17 +4,29 @@ Does not run downloaded content. Only uncompressed PCM WAV audio is accepted.
 from pathlib import Path, PurePosixPath
 from collections import defaultdict
 from array import array
-import hashlib, io, json, struct, wave, zipfile, sys
+import argparse, hashlib, io, json, struct, wave, zipfile, sys
 
-ROOT = Path(sys.argv[1]).resolve()
-DOWNLOADS = Path.home() / 'Downloads'
+parser = argparse.ArgumentParser()
+parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parents[1])
+parser.add_argument('--game-dir', type=Path)
+parser.add_argument('--downloads-dir', type=Path, default=Path.home() / 'Downloads')
+args = parser.parse_args()
+ROOT = args.root.resolve()
+GAME_DIR = (args.game_dir or ROOT / 'original/extracted').resolve()
+DOWNLOADS = args.downloads_dir.resolve()
 IDS = [446313,446314,446315,446316,446317,446318,446319,446320,446321,446322,446323,446324,446325,446326,446327,446328,446329,446330,454160]
 BASE = 'https://sounds.spriters-resource.com/gamecube/disneysextremeskateadventure/'
 DEST = ROOT / 'assets/native/audio'
 DEST.mkdir(parents=True, exist_ok=True)
 sha = lambda b: hashlib.sha256(b).hexdigest()
 gc, archives, skipped = {}, [], []
-for asset_id in IDS:
+missing_archives = [str(DOWNLOADS / f'{asset_id}.zip') for asset_id in IDS
+                    if not (DOWNLOADS / f'{asset_id}.zip').is_file()]
+if missing_archives:
+    raise FileNotFoundError('Pacotes WAV ausentes em Downloads: ' + ', '.join(missing_archives))
+print('[DISNEY_PROGRESS] 5 Verificando os pacotes WAV originais...', flush=True)
+for archive_index, asset_id in enumerate(IDS):
+    print(f'[DISNEY_PROGRESS] {10 + 40 * archive_index // len(IDS)} Lendo o pacote WAV {archive_index + 1}/{len(IDS)}...', flush=True)
     archive = DOWNLOADS / f'{asset_id}.zip'
     archives.append({'asset':asset_id, 'page':f'{BASE}asset/{asset_id}/', 'sha256':sha(archive.read_bytes())})
     with zipfile.ZipFile(archive) as z:
@@ -85,6 +97,7 @@ def install(key, original, data, rate, frames, loop_start=0, loop_end=0):
     records.append({'key':key,'original':original,'file':filename,'sha256':digest,'rate':rate,'frames':frames,'loopStart':loop_start,'loopEnd':loop_end,'source':source})
 
 # Full original resource paths disambiguate names in different sound folders.
+print('[DISNEY_PROGRESS] 55 Convertendo efeitos VAG extraidos...', flush=True)
 vags=defaultdict(list)
 for f in (ROOT/'assets/source/wad').rglob('*.vag'):
     tail=str(f).replace('\\','/').lower().split('/sounds/vag/',1)[1][:-4]
@@ -110,8 +123,9 @@ def hed_entries(path):
         at=(end+4)&~3
 
 # EZPCM voice stream samples run at pitch 4096 (48 kHz); unlike music, mono.
-with (ROOT/'original/extracted/STREAMS/STREAMS.WAD').open('rb') as f:
-    for offset,size,name in hed_entries(ROOT/'original/extracted/STREAMS/STREAMS.HED'):
+print('[DISNEY_PROGRESS] 75 Convertendo vozes e streams do disco...', flush=True)
+with (GAME_DIR/'STREAMS/STREAMS.WAD').open('rb') as f:
+    for offset,size,name in hed_entries(GAME_DIR/'STREAMS/STREAMS.HED'):
         stem=name.rsplit('/',1)[-1]
         if stem in gc:
             hit=gc[stem];install('stream/'+name.removeprefix('streams/'),f'STREAMS.WAD@{offset}:{size}',hit['data'],hit['rate'],hit['frames'])
@@ -123,8 +137,9 @@ with (ROOT/'original/extracted/STREAMS/STREAMS.WAD').open('rb') as f:
             except ValueError as ex: errors.append({'name':name,'error':str(ex)})
 
 # The public rip supplies the ten ambience tracks, not licensed soundtrack songs.
+print('[DISNEY_PROGRESS] 85 Catalogando musicas e ambientes...', flush=True)
 missing_music=[]
-for offset,size,name in hed_entries(ROOT/'original/extracted/MUSIC/MUSIC.HED'):
+for offset,size,name in hed_entries(GAME_DIR/'MUSIC/MUSIC.HED'):
     stem=name.rsplit('/',1)[-1]
     if stem in gc:
         hit=gc[stem];install('music/'+stem,f'MUSIC.WAD@{offset}:{size}',hit['data'],hit['rate'],hit['frames'])
@@ -133,6 +148,9 @@ for offset,size,name in hed_entries(ROOT/'original/extracted/MUSIC/MUSIC.HED'):
 assert len({r[0] for r in rows})==len(rows)
 (DEST/'catalog.tsv').write_text(''.join('\t'.join(r)+'\n' for r in rows),encoding='utf-8')
 report={'source':BASE,'archives':archives,'wavInArchives':len(gc)+len(skipped),'englishAndNonVoiceWavs':len(gc),'otherLanguageWavsSkipped':len(skipped),'installedLogicalSounds':len(rows),'gamecubeNamesUsed':len(used),'unmatchedGamecubeNames':sorted(set(gc)-used),'missingMusic':missing_music,'conversionErrors':errors,'sounds':records,'limitations':['Name correspondence is established; GameCube and PS2 waveforms may differ.','Music soundtrack tracks absent from the public pack are not substituted.']}
-(ROOT/'analysis/audio-asset-installation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+report_path=ROOT/'analysis/audio-asset-installation.json'
+report_path.parent.mkdir(parents=True,exist_ok=True)
+report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+print('[DISNEY_PROGRESS] 100 Catalogo de audio base instalado.', flush=True)
 print(json.dumps({k:v for k,v in report.items() if k!='sounds'},ensure_ascii=True,indent=2),flush=True)
 if errors:sys.exit(2)

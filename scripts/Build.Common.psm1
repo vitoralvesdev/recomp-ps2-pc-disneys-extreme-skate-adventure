@@ -17,4 +17,10 @@ function Get-DisneyCMake {
     throw 'CMake 3.21+ não foi encontrado. Instale o CMake ou o componente CMake do Visual Studio e tente novamente.'
 }
 
-Export-ModuleMember -Function Get-DisneyCMake
+function Write-DisneyProgress {
+    param([ValidateRange(0, 100)][int]$Percent, [Parameter(Mandatory)][string]$Message)
+    $singleLine = $Message.Replace("`r", ' ').Replace("`n", ' ')
+    Write-Output "[DISNEY_PROGRESS] $Percent $singleLine"
+}
+
+Export-ModuleMember -Function Get-DisneyCMake, Write-DisneyProgress

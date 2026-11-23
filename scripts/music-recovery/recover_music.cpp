@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <cstdlib>
 namespace fs=std::filesystem;
 using Bytes=std::vector<uint8_t>;
 uint32_t u32(const uint8_t* p){return uint32_t(p[0])|uint32_t(p[1])<<8|uint32_t(p[2])<<16|uint32_t(p[3])<<24;}
@@ -25,7 +26,9 @@ void w32(std::ostream& f,uint32_t v){w16(f,uint16_t(v));w16(f,uint16_t(v>>16));}
 int wmain(int argc,wchar_t** argv){try{
  if(argc<3)throw std::runtime_error("Usage: recover_music project output [track]");
  fs::path p=argv[1],out=argv[2];fs::create_directories(out);const std::wstring wanted=argc>3?argv[3]:L"";
- auto hed=read(p/L"original/extracted/MUSIC/MUSIC.HED");std::ifstream wad(p/L"original/extracted/MUSIC/MUSIC.WAD",std::ios::binary);
+ const wchar_t* gameDirectory=_wgetenv(L"DISNEY_GAME_DIR");
+ const fs::path game=gameDirectory&&*gameDirectory?fs::path(gameDirectory):p/L"original/extracted";
+ auto hed=read(game/L"MUSIC/MUSIC.HED");std::ifstream wad(game/L"MUSIC/MUSIC.WAD",std::ios::binary);
  if(!wad)throw std::runtime_error("Missing MUSIC.WAD");
  for(size_t at=0;at+8<=hed.size();){uint32_t offset=u32(&hed[at]),size=u32(&hed[at+4]);if(offset==0xffffffffu)break;
   size_t end=at+8;while(end<hed.size() && hed[end])++end;if(end==hed.size())throw std::runtime_error("Invalid HED name");

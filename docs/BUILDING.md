@@ -1,11 +1,13 @@
 # Compilação
 
-O build padrão compila o launcher oficial (`src/launcher`), o conversor de assets e o núcleo
-nativo que está versionado. Ele não compila o runtime completo do jogo. Uma compilação deste
-build padrão passou em uma cópia isolada contendo somente arquivos rastreados do Git, usando
-Windows 11, Visual Studio 2022 Build Tools e CMake 3.31 do Visual Studio. O workflow
-`.github/workflows/windows-source-build.yml` repete essa compilação em Windows hospedado pelo
-GitHub Actions quando o workflow for executado.
+O launcher oficial (`src/launcher`) tem um alvo isolado que compila sem ISO, raylib, PS2Recomp,
+fontes geradas ou dados do jogo. Uma compilação desse alvo passou em uma cópia isolada contendo
+somente arquivos rastreados do Git, usando Windows 11, Visual Studio 2022 Build Tools e CMake 3.31
+do Visual Studio. O workflow `.github/workflows/windows-source-build.yml` repete esse build e os
+testes em Windows hospedado pelo GitHub Actions.
+
+O build completo do código versionado (launcher + conversor + núcleo nativo) também existe, mas
+não compila o runtime AOT do jogo.
 
 O runtime completo ainda **não é reproduzível a partir de um clone limpo**: o candidato AOT
 depende de PS2Recomp e bibliotecas que não estão versionados, além de código gerado a partir da
@@ -23,18 +25,46 @@ Para o conversor de colisão, também é necessário .NET SDK 9. Ghidra é usado
 recompilação do código do jogo, mas ainda não há um fluxo headless configurado e validado no
 repositório.
 
-## Build padrão do código versionado
+## Launcher (sem dados do jogo)
 
-No PowerShell, a partir da raiz do projeto (com CMake e MSVC disponíveis):
+Recomendado para desenvolver a interface e o instalador:
+
+```powershell
+.\scripts\Compilar-Launcher.ps1
+```
+
+Ou manualmente:
+
+```powershell
+cmake -S . -B build/launcher -G "Visual Studio 17 2022" -A x64 -DDISNEY_BUILD_LAUNCHER_ONLY=ON
+cmake --build build/launcher --config Release --target DisneySkateLauncher DisneyLauncherTests --parallel 2
+ctest --test-dir build/launcher -C Release --output-on-failure
+```
+
+O resultado é `Disney's Extreme Skate Adventure.exe` na raiz. Sem os dados locais, o launcher
+abre a tela de instalação e mostra quais componentes faltam.
+
+Os testes não precisam de ISO. Para a integração real:
+
+```powershell
+.\scripts\Compilar-Launcher.ps1 -Iso "C:\Jogos\Disney's Extreme Skate Adventure (USA).iso"
+```
+
+Os testes verificam ISO9660, validação de região/serial, hash do ELF, extração, configuração,
+detecção de layout, verificação de pacote e processos. Eles nunca executam código do jogo.
+
+O código-fonte é UTF-8; o CMake aplica `/utf-8` ao MSVC para evitar mojibake nos textos.
+
+## Build completo do código versionado
+
+Este build inclui o conversor de assets e o núcleo nativo versionado:
 
 ```powershell
 cmake -S . -B build/source -A x64
 cmake --build build/source --config Release --parallel 2
 ```
 
-O resultado inclui `Disney's Extreme Skate Adventure.exe`, que é o launcher oficial do
-repositório. Sem os dados locais, o launcher apenas informa que o pacote do jogo não está
-preparado.
+Sem os dados locais, o launcher apenas informa que o pacote do jogo não está preparado.
 
 ## Runtime AOT (ainda dependente do ambiente local)
 

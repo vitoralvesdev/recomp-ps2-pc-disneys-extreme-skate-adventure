@@ -66,13 +66,55 @@ $install.Add_Click({
         [System.Windows.Forms.MessageBox]::Show('Selecione um arquivo de imagem de disco existente.', $form.Text, 'OK', 'Warning') | Out-Null
         return
     }
+
     $sevenZip = Join-Path $projectRoot 'tools\7-Zip\7z.exe'
     if (-not (Test-Path -LiteralPath $sevenZip)) {
         $command = Get-Command 7z.exe -ErrorAction SilentlyContinue
         if ($command) { $sevenZip = $command.Source }
     }
+
+    $missingPrerequisites = [System.Collections.Generic.List[string]]::new()
     if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
-        [System.Windows.Forms.MessageBox]::Show('7-Zip não foi encontrado. Instale o 7-Zip ou coloque 7z.exe em tools\7-Zip e tente novamente.', $form.Text, 'OK', 'Error') | Out-Null
+        $missingPrerequisites.Add('7-Zip (7z.exe) não encontrado no PATH nem em tools\7-Zip.')
+    }
+    $multitool = Get-ChildItem -LiteralPath (Join-Path $projectRoot 'tools\neversoft-multitool-v1.3.4\cli') -Recurse -File -Filter 'NeversoftMultitool.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $multitool) {
+        $missingPrerequisites.Add('Neversoft Multitool CLI v1.3.4 ausente em tools\neversoft-multitool-v1.3.4\cli.')
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'assets\native\audio\catalog.tsv') -PathType Leaf)) {
+        $missingPrerequisites.Add('Catálogo de áudio ausente: assets\native\audio\catalog.tsv.')
+    }
+    $requiredGeneratedSources = @(
+        'src\generated-ghidra\FUN_002d2b90_0x2d2b90.cpp',
+        'src\generated-ghidra\FUN_002d3848_0x2d3848.cpp',
+        'src\generated-ghidra\FUN_002d3888_0x2d3888.cpp'
+    )
+    $missingGeneratedSources = @($requiredGeneratedSources | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $projectRoot $_) -PathType Leaf)
+    })
+    if ($missingGeneratedSources.Count -gt 0 -or
+        -not (Get-ChildItem -LiteralPath (Join-Path $projectRoot 'native\original\vu\generated') -Filter '*.cpp' -File -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+        $missingPrerequisites.Add('Código AOT gerado ausente ou incompleto em src\generated-ghidra e native\original\vu\generated.')
+    }
+    $dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+    $hasDotnet9 = $false
+    if ($dotnet) {
+        $installedSdks = & $dotnet.Source --list-sdks 2>$null
+        $hasDotnet9 = ($LASTEXITCODE -eq 0) -and [bool]($installedSdks | Where-Object { $_ -match '^9\.' })
+    }
+    if (-not $hasDotnet9) {
+        $missingPrerequisites.Add('SDK .NET 9 necessário para compilar o conversor de colisão não encontrado.')
+    }
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1') -ErrorAction Stop
+        $null = Get-DisneyCMake
+    } catch {
+        $missingPrerequisites.Add('CMake 3.21+ não encontrado.')
+    }
+    if ($missingPrerequisites.Count -gt 0) {
+        $message = "A instalação não foi iniciada. Corrija estes pré-requisitos:`n`n- " + ($missingPrerequisites -join "`n- ")
+        [System.Windows.Forms.MessageBox]::Show($message, $form.Text, 'OK', 'Error') | Out-Null
+        foreach ($item in $missingPrerequisites) { Add-Log "Pré-requisito ausente: $item" }
         return
     }
 
@@ -114,16 +156,20 @@ $install.Add_Click({
         & (Join-Path $PSScriptRoot 'Preparar-Dados-Nativos.ps1')
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'A preparação dos assets nativos falhou.' }
 
-        $catalog = Join-Path $projectRoot 'assets\native\audio\catalog.tsv'
-        if (-not (Test-Path -LiteralPath $catalog -PathType Leaf)) {
-            throw 'O catálogo assets\native\audio\catalog.tsv não foi produzido. A preparação do catálogo de áudio ainda requer um procedimento local que não acompanha este assistente.'
-        }
         Add-Log 'Compilando o runtime e o launcher...'
         & (Join-Path $PSScriptRoot 'Compilar-Candidato-Original.ps1')
         if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'A compilação do runtime/launcher falhou.' }
 
-        Add-Log 'Instalação preparada. Abra Disney''s Extreme Skate Adventure.exe na pasta do projeto.'
-        [System.Windows.Forms.MessageBox]::Show("Preparação concluída.`n`nAbra o launcher na pasta do projeto.", $form.Text, 'OK', 'Information') | Out-Null
+        $launcher = Join-Path $projectRoot "Disney's Extreme Skate Adventure.exe"
+        if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw 'O build terminou sem produzir o launcher.' }
+        Add-Log 'Verificando os arquivos exigidos pelo launcher...'
+        & $launcher --verificar *> (Join-Path $projectRoot 'analysis\installer-package-check.log')
+        if ($LASTEXITCODE -ne 0) {
+            throw 'O launcher detectou arquivos ausentes no pacote. Confira analysis\installer-package-check.log.'
+        }
+
+        Add-Log 'Pacote validado. Abra Disney''s Extreme Skate Adventure.exe na pasta do projeto.'
+        [System.Windows.Forms.MessageBox]::Show("Preparação concluída e pacote verificado.`n`nAbra o launcher na pasta do projeto.", $form.Text, 'OK', 'Information') | Out-Null
     } catch {
         Add-Log "ERRO: $($_.Exception.Message)"
         [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $form.Text, 'OK', 'Error') | Out-Null

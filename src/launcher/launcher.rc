@@ -1,24 +1,39 @@
 #include <windows.h>
-1 VERSIONINFO
-FILEVERSION 0,2,0,0
-PRODUCTVERSION 0,2,0,0
-FILEFLAGSMASK 0x3fL
-FILEFLAGS VS_FF_PRERELEASE
-FILEOS VOS_NT_WINDOWS32
-FILETYPE VFT_APP
+#include "resource.h"
+
+IDI_APP ICON "app.ico"
+IDR_COVER_IMAGE RCDATA "cover.jpg"
+1 RT_MANIFEST "launcher.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,3,0,0
+ PRODUCTVERSION 0,3,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
 BEGIN
- BLOCK "StringFileInfo"
- BEGIN
-  BLOCK "040904b0"
-  BEGIN
-   VALUE "FileDescription", "Disney's Extreme Skate Adventure - Native Launcher\0"
-   VALUE "ProductName", "Disney's Extreme Skate Adventure - Windows port\0"
-   VALUE "FileVersion", "0.2.0.0\0"
-   VALUE "Comments", "Development version; starts the current native GPU runtime.\0"
-  END
- END
- BLOCK "VarFileInfo"
- BEGIN
-  VALUE "Translation", 0x409, 1200
- END
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "HighSky REC"
+            VALUE "FileDescription", "Disney's Extreme Skate Adventure - Launcher nativo"
+            VALUE "FileVersion", "0.3.0.0"
+            VALUE "InternalName", "DisneySkateLauncher"
+            VALUE "LegalCopyright", "Projeto nao oficial. Personagens e marcas pertencem aos titulares."
+            VALUE "OriginalFilename", "Disney's Extreme Skate Adventure.exe"
+            VALUE "ProductName", "Disney's Extreme Skate Adventure"
+            VALUE "ProductVersion", "0.3.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
 END
