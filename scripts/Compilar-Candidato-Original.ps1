@@ -3,6 +3,8 @@ $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1')
 $cmake=Get-DisneyCMake
+& (Join-Path $PSScriptRoot 'Bootstrap-PS2Recomp.ps1')
+if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'Falha ao preparar PS2Recomp'}
 & "$PSScriptRoot\Testar-Inicializacao-Original.ps1"
 & $cmake -S $projectRoot -B "$projectRoot\build\port" '-DDISNEY_BUILD_ORIGINAL_AOT_CANDIDATE=ON' '-DDISNEY_BUILD_LEGACY_PROTOTYPE=OFF' "-DFETCHCONTENT_BASE_DIR=$projectRoot\build\deps" '-DFETCHCONTENT_FULLY_DISCONNECTED=OFF'
 if($LASTEXITCODE -ne 0){throw 'Falha ao configurar candidato original'}

@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1')
 $cmake = Get-DisneyCMake
+& (Join-Path $PSScriptRoot 'Bootstrap-PS2Recomp.ps1')
+if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'Falha ao preparar o PS2Recomp.' }
 $env:GIT_CONFIG_COUNT = '1'
 $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
 $env:GIT_CONFIG_VALUE_0 = 'true'
