@@ -33,7 +33,16 @@ try {
     $env:DOTNET_CLI_HOME="$projectRoot\build\dotnet-home"
     & dotnet build "$converter\Col8Converter.csproj" -c Release *> "$projectRoot\analysis\col8-build.log"
     if($LASTEXITCODE -ne 0){throw 'Falha ao compilar conversor COL v8; requer SDK .NET 9'}
-    & dotnet "$converter\bin\Release\net9.0\Col8Converter.dll" "$source\HUBcol\Levels\HUB\HUB.col.ps2" "$projectRoot\assets\native\collision\hub\HUB.dscollision" *> "$projectRoot\analysis\col8-conversion.log"
-    if($LASTEXITCODE -ne 0){throw 'Falha ao converter colisoes COL v8'}
+    $collisionSources=Get-ChildItem -LiteralPath $source -Recurse -File -Filter '*.col.ps2' | Sort-Object FullName
+    if(-not $collisionSources){throw 'Nenhum arquivo COL de colisao foi encontrado'}
+    $conversionLog=Join-Path $projectRoot 'analysis\col8-conversion.log'
+    foreach($collisionSource in $collisionSources){
+        $relativeDirectory=$collisionSource.DirectoryName.Substring($source.Length).TrimStart('\')
+        $levelName=[IO.Path]::GetFileNameWithoutExtension([IO.Path]::GetFileNameWithoutExtension($collisionSource.Name))
+        $destination=Join-Path (Join-Path $projectRoot 'assets\native\collision') (Join-Path $relativeDirectory "$levelName.dscollision")
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        & dotnet "$converter\bin\Release\net9.0\Col8Converter.dll" $collisionSource.FullName $destination *> $conversionLog
+        if($LASTEXITCODE -ne 0){throw "Falha ao converter colisao: $($collisionSource.FullName). Confira $conversionLog"}
+    }
 } finally {$env:DOTNET_CLI_HOME=$oldDotnetHome}
-Write-Output 'Dados nativos do HUB e Timon preparados. Nenhum executavel ou modulo do PS2 foi executado.'
+Write-Output 'Dados nativos das fases e Timon preparados. Nenhum executavel ou modulo do PS2 foi executado.'

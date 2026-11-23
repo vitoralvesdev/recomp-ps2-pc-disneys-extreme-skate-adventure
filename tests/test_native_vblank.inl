@@ -22,7 +22,8 @@ static void testNativeDisplayClock(PS2Runtime& runtime,std::vector<uint8_t>& ram
     const auto ticks=runtime.memory().gs().vsyncTick.load();
     const auto cycles=runtime.eeScheduler().snapshot().eeCycle;
     check(cycles<100000u,"display cadence does not manufacture EE/DMA/IOP work cycles");
-    if(std::getenv("DISNEY_NATIVE_VBLANK")) {
+    const char* nativeVblank=std::getenv("DISNEY_NATIVE_VBLANK");
+    if(!nativeVblank || nativeVblank[0]!='0') {
         check(ticks>=8u && ticks<=16u,"native VBlank cadence while EE cycles lag");
         check(nativeDisplayInterrupts>=8u && nativeDisplayInterrupts<=ticks,"original VBlank IRQs remain dispatched");
     } else check(ticks==0u && nativeDisplayInterrupts==0u,"reference demonstrates cycle-gated display starvation");
