@@ -20,7 +20,11 @@ O projeto combina quatro camadas próprias:
 | GPU | GS (Graphics Synthesizer) traduzido para OpenGL 3.3, com merge de batches e apresentação em janela |
 | Mídia | Áudio nativo e IOP reimplementados no host; decodificador de vídeo ligado, cutscenes ainda não validadas |
 
-O iniciador valida o pacote, ajusta o ambiente, abre a janela com o título do jogo e inicia o runtime.
+O projeto inclui um assistente gráfico de instalação para selecionar uma ISO local, extrair e
+validar os arquivos esperados e chamar as etapas existentes de preparação e compilação. Depois
+de preparado, o launcher valida o pacote, ajusta o ambiente, abre a janela do jogo e inicia o
+runtime. A instalação completa ainda depende de ferramentas e arquivos gerados que não estão no
+repositório; o assistente informa quando uma etapa indisponível impede a conclusão.
 
 ---
 
@@ -41,7 +45,7 @@ O projeto ainda não foi validado do início ao fim.
 | Carregamento | Problemas conhecidos | Algumas fases podem parar ao carregar; houve uma espera inicial longa nos testes. |
 | Vídeos e cutscenes | Pendente de validação | O decodificador está ligado, mas as cutscenes não foram validadas no fluxo recente. |
 | Saves | Pendente de validação completa | Há teste isolado do serviço, mas falta confirmar salvar e carregar uma partida completa. |
-| Instalação e compilação limpa | Pendente | Ainda não há procedimento completo validado para gerar todos os arquivos necessários a partir de um clone novo. |
+| Assistente de instalação | Experimental, não validado de ponta a ponta | Extrai e verifica arquivos de uma ISO USA e chama os scripts locais. A geração do catálogo de áudio e alguns pré-requisitos de compilação ainda dependem do ambiente de desenvolvimento. |
 
 ### Melhoria de FPS em gameplay (23/11/2026)
 
@@ -72,6 +76,7 @@ build e configuração.
 - O FPS das fases além de Toy Story Bedroom ainda precisa de uma medição controlada após a
   melhoria de 23/11/2026.
 - Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
+- Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
   A sessão de diagnóstico `analysis/audio-trace-run/session.log` confirma ausência de entradas
   em lógica/desenho nesse intervalo; o PC quente `0x002750a8` foi verificado no Ghidra e é uma
   leitura de timer, portanto não identifica a causa. As leituras dos arquivos de fase são
@@ -90,48 +95,37 @@ originais do jogo.**
 
 ---
 
-## Como jogar pelo executável
+## Instalação e execução
 
-**O repositório não inclui o executável pronto, o runtime nem os dados do jogo.** As instruções
-abaixo se aplicam a um pacote de desenvolvimento já compilado e preparado localmente; ainda
-não há uma instalação completa reproduzível a partir de um clone novo. É necessário ter uma
-cópia legal da edição americana de PS2 (`SLUS_206.07`).
+**O repositório não inclui o executável pronto, o runtime nem os dados do jogo.** É necessária
+uma cópia legal da edição americana de PS2. O assistente ainda é experimental: automatiza a
+extração da ISO e chama as rotinas de preparação/compilação existentes, mas não torna o processo
+reproduzível num clone limpo. Ferramentas locais, fontes geradas e o catálogo de áudio podem
+estar ausentes.
 
-### 1. Prepare a pasta do jogo
+### 1. Abra o assistente
 
-Mantenha esta estrutura lado a lado:
+No Windows, com PowerShell 5.1 ou superior, execute na raiz do projeto:
 
-```text
-Disney's Extreme Skate Adventure.exe   <- iniciador (duplo clique)
-Jogar.cmd                              <- atalho opcional
-runtime/
-  DisneySkateRuntime.exe               <- runtime do port
-  *.dll                                <- DLLs de mídia/áudio
-original/extracted/
-  SLUS_206.07                          <- binário da sua cópia legal
-  SKATE4.HED
-  SKATE4.WAD
-  IOP/*.IRX
-  ...                                  <- demais dados extraídos
-assets/
-  native/audio/catalog.tsv
-  ...                                  <- demais assets nativos
+```powershell
+powershell -STA -ExecutionPolicy Bypass -File .\scripts\Instalar-DisneySkate.ps1
 ```
 
-Os dados de `original/` e `assets/` não acompanham o repositório. Extraia os dados da sua
-própria cópia e mantenha a estrutura do disco. O catálogo de áudio em `assets/` exige preparação
-adicional: apenas copiar os arquivos da ISO não o cria. O processo completo de preparação do
-áudio e dos arquivos gerados ainda precisa ser documentado e validado.
+Selecione a ISO USA. O assistente usa 7-Zip (incluído em `tools/7-Zip` no ambiente local ou
+disponível no `PATH`), confere o executável `SLUS_206.07`, os arquivos HED/WAD e os módulos IOP,
+e copia os arquivos extraídos para `original/extracted/`. Em seguida, tenta preparar os dados
+nativos e compilar o runtime. O log da extração fica em `analysis/installer-7zip.log`.
 
-O iniciador também exige os módulos IRX em `IOP/` e as DLLs FFmpeg no diretório `runtime/`.
-Não compartilhe a ISO, os arquivos extraídos, os assets ou um runtime que incorpore código
-gerado do jogo sem antes verificar os direitos de distribuição.
+O assistente não verifica o hash da ISO; valida a presença dos arquivos esperados da edição USA.
+Ele não cria o catálogo `assets/native/audio/catalog.tsv`. Se esse catálogo, ferramentas locais,
+ou código gerado estiverem ausentes, a etapa correspondente falha e mostra o motivo. A extração
+é local: não há download da ISO nem dos dados do jogo.
 
-### 2. Execute
+### 2. Jogue após preparar um pacote válido
 
-Dê **duplo clique em `Disney's Extreme Skate Adventure.exe`** (ou em `Jogar.cmd`).
-O iniciador confere os arquivos, configura o renderer e abre o jogo na janela com o título
-**Disney's Extreme Skate Adventure**.
+Quando o runtime e os assets estiverem presentes, dê **duplo clique em
+`Disney's Extreme Skate Adventure.exe`** (ou em `Jogar.cmd`). O launcher confere o pacote,
+configura o renderer e abre o jogo na janela com o título **Disney's Extreme Skate Adventure**.
 
 Opções do iniciador:
 
