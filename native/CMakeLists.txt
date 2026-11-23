@@ -24,5 +24,14 @@ if(MSVC)
  target_compile_options(DisneyOriginalCoreTest PRIVATE /W4 /permissive- /fp:strict)
 endif()
 set_target_properties(DisneyOriginalCoreTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")
-# Compiled original module logic, with no instruction-interpreter fallback.
-add_subdirectory(original/iop)
+# The original IOP module bodies are generated from the user's IRX files and
+# are intentionally excluded from a source-only build. The game candidate's
+# setup script opts in after those local inputs have been prepared.
+option(DISNEY_BUILD_ORIGINAL_IOP "Build the original IOP modules and boot test from local generated sources" OFF)
+if(DISNEY_BUILD_ORIGINAL_IOP)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/original/iop/generated/iopn_registry.cpp")
+        message(FATAL_ERROR
+            "Disney original IOP sources are missing. Generate them from your own extracted game modules before enabling DISNEY_BUILD_ORIGINAL_IOP.")
+    endif()
+    add_subdirectory(original/iop)
+endif()

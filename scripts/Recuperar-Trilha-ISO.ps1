@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
-$cmake=Join-Path $projectRoot 'tools/cmake/cmake-4.4.4-windows-x86_64/bin/cmake.exe'
+Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1')
+$cmake=Get-DisneyCMake
 $source=Join-Path $PSScriptRoot 'music-recovery'
 $build=Join-Path $projectRoot 'build/music-recovery'
 $output=Join-Path $build 'output'

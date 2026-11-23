@@ -45,6 +45,7 @@ O projeto ainda não foi validado do início ao fim.
 | Carregamento | Problemas conhecidos | Algumas fases podem parar ao carregar; houve uma espera inicial longa nos testes. |
 | Vídeos e cutscenes | Pendente de validação | O decodificador está ligado, mas as cutscenes não foram validadas no fluxo recente. |
 | Saves | Pendente de validação completa | Há teste isolado do serviço, mas falta confirmar salvar e carregar uma partida completa. |
+| Build limpo do código versionado | Passou localmente em checkout isolado | O launcher oficial, o conversor e o núcleo versionado compilaram sem `tools/`, ISO ou fontes ignoradas; o runtime AOT completo ainda não compila de um clone limpo. Workflow Windows adicionado, aguardando execução remota. |
 | Assistente de instalação | Experimental, não validado de ponta a ponta | Extrai e verifica arquivos de uma ISO USA e chama os scripts locais. A geração do catálogo de áudio e alguns pré-requisitos de compilação ainda dependem do ambiente de desenvolvimento. |
 
 ### Melhoria de FPS em gameplay (23/11/2026)
@@ -75,6 +76,7 @@ build e configuração.
 
 - O FPS das fases além de Toy Story Bedroom ainda precisa de uma medição controlada após a
   melhoria de 23/11/2026.
+- Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
 - Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
 - Hitch único de ~15 s ao entrar na fase (loader do jogo, antes do primeiro frame de gameplay).
   A sessão de diagnóstico `analysis/audio-trace-run/session.log` confirma ausência de entradas
@@ -209,10 +211,11 @@ nem apaga o histórico**. Revise a lista e os commits antes de publicar. Consult
 
 ## Desenvolvimento
 
-Pré-requisitos conhecidos: Windows x64, Visual Studio Build Tools com C++ x64, CMake e sua cópia
-legal do jogo extraída localmente. O ambiente atual também depende de ferramentas, dependências
-e código gerado que não acompanham o repositório. **Um clone limpo ainda não tem um processo de
-compilação completo e validado.**
+O build padrão do launcher e das ferramentas versionadas foi compilado em uma cópia isolada do
+checkout, sem os diretórios locais ignorados. O workflow Windows está preparado para executar a
+mesma compilação em CI, mas ainda precisa de uma execução remota para comprovar outro ambiente.
+Isso não valida nem compila o runtime AOT completo. Ele ainda depende de PS2Recomp, bibliotecas,
+dados de jogo e código recompilado ausentes de um clone limpo.
 
 ```powershell
 .\scripts\Compilar-Candidato-Original.ps1

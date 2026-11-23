@@ -1,7 +1,8 @@
 $ErrorActionPreference='Stop'
 $projectRoot=Split-Path $PSScriptRoot -Parent
-$cmake="$projectRoot\tools\cmake\cmake-4.4.4-windows-x86_64\bin\cmake.exe"
-& $cmake -S $projectRoot -B "$projectRoot\build\native" -G 'Visual Studio 17 2022' -A x64 '-DDISNEY_BUILD_LEGACY_PROTOTYPE=OFF' '-DDISNEY_BUILD_ORIGINAL_AOT_CANDIDATE=OFF' '-DDISNEY_BUILD_RESOURCE_LAB=OFF'
+Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1')
+$cmake=Get-DisneyCMake
+& $cmake -S $projectRoot -B "$projectRoot\build\native" -G 'Visual Studio 17 2022' -A x64 '-DDISNEY_BUILD_LEGACY_PROTOTYPE=OFF' '-DDISNEY_BUILD_ORIGINAL_AOT_CANDIDATE=OFF' '-DDISNEY_BUILD_RESOURCE_LAB=OFF' '-DDISNEY_BUILD_ORIGINAL_IOP=ON'
 if($LASTEXITCODE -ne 0){throw 'Falha na configuracao nativa'}
 & $cmake --build "$projectRoot\build\native" --config Release --target DisneyOriginalIopBootTest --parallel 2
 if($LASTEXITCODE -ne 0){throw 'Falha na compilacao dos modulos originais'}

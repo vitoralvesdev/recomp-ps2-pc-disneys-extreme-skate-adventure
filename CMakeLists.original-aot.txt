@@ -1,4 +1,12 @@
 # Original-code integration candidate, not the finished port.
+foreach(required_path
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra"
+ "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/generated")
+ if(NOT EXISTS "${required_path}")
+  message(FATAL_ERROR
+   "Required generated game sources are missing: '${required_path}'. Generate them from your own PS2 copy before configuring the AOT candidate.")
+ endif()
+endforeach()
 include("${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.legacy.txt")
 target_sources(runtime_flow_test PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d2b90_0x2d2b90.cpp"

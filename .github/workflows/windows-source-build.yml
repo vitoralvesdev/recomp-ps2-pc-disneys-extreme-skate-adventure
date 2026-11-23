@@ -1,0 +1,16 @@
+name: Windows source build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure tracked source build
+        run: cmake -S . -B build/ci -A x64
+      - name: Build launcher and source tools
+        run: cmake --build build/ci --config Release --parallel 2

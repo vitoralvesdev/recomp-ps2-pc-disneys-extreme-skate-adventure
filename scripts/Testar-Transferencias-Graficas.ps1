@@ -1,7 +1,8 @@
 ﻿$ErrorActionPreference='Stop'
 $projectRoot=Split-Path -Parent $PSScriptRoot
 $env:PATH=(Join-Path $projectRoot 'runtime')+';'+$env:PATH
-$cmake=Join-Path $projectRoot 'tools/cmake/cmake-4.4.4-windows-x86_64/bin/cmake.exe'
+Import-Module (Join-Path $PSScriptRoot 'Build.Common.psm1')
+$cmake=Get-DisneyCMake
 & $cmake --build (Join-Path $projectRoot 'build/port') --config Release --target DisneyNativeGifStreamTest DisneyOriginalGraphicsReplay --parallel 2
 if($LASTEXITCODE -ne 0){throw 'Falha ao compilar teste grafico'}
 & (Join-Path $projectRoot 'dist/native-tools/Release/DisneyNativeGifStreamTest.exe') (Join-Path $projectRoot 'analysis/native-gif-before-stream-fix.bin')
