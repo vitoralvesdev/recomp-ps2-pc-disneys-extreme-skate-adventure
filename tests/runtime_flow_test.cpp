@@ -6,6 +6,10 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#include <array>
+#if defined(DISNEY_TEST_ORIGINAL_AOT)
+#include "ps2_vu1_impl.inl"
+#endif
 extern const uint32_t g_ps2RecompiledFunctionTableBase=0x1000u;
 extern const uint32_t g_ps2RecompiledFunctionTableEnd=0x1040u;
 extern const uint32_t g_ps2RecompiledFunctionTableSlotCount=16u;
@@ -100,6 +104,66 @@ static void testVu0DataMemory(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
  for(int i=0;i<4;++i) check(wrappedStored[i]==wrapped[i],"VSQI address wraps inside VU0 data memory");
  std::puts("PASS: EE VLQI/VSQI exchange quadwords through VU0 data memory");
 }
+#if defined(DISNEY_TEST_ORIGINAL_AOT)
+static void testVu0CollisionKernel(PS2Runtime& runtime) {
+ using Vec4=std::array<float,4>;
+ struct Case {
+  const char* label;
+  Vec4 origin,direction,a,b,c;
+  bool hit;
+  float t;
+ };
+ struct Result { bool hit; float t; };
+ const auto runCollision=[&](const Case& test) {
+  VU1Interpreter vu(VU1Interpreter::Unit::VU0);
+  vu.reset();
+  std::array<uint8_t,VU1InterpreterAccess::kFastMemSize> data{};
+  Vu1RunArgs args{data.data(),VU1InterpreterAccess::kFastMemSize,&runtime.gs(),&runtime.memory(),
+                  VU1InterpreterAccess::kFastCodeSize,4096};
+  auto& state=vu.state();
+  state.ebit=false;
+  state.pc=0x7e8;
+  state.vi[2]=9;
+  std::memcpy(state.vf[4],test.origin.data(),sizeof(state.vf[4]));
+  std::memcpy(state.vf[5],test.direction.data(),sizeof(state.vf[5]));
+  std::memcpy(state.vf[6],test.a.data(),sizeof(state.vf[6]));
+  std::memcpy(state.vf[7],test.b.data(),sizeof(state.vf[7]));
+  std::memcpy(state.vf[8],test.c.data(),sizeof(state.vf[8]));
+  check(VU1InterpreterAccess::runImage<0xA71F9755E12AF1B2ull>(vu,args)==VU1InterpreterAccess::StepResult::Ended,
+         test.label);
+  return Result{state.vi[2]!=0,state.vf[17][0]};
+ };
+ const Case floorCase={"floor hit",{0.25f,0.25f,1.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+                       {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},true,0.5f};
+ const Case cases[]={
+  floorCase,
+  {"outside triangle",{2.0f,0.25f,1.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},false,0.0f},
+  {"behind segment",{0.25f,0.25f,1.0f,0.0f},{0.0f,0.0f,2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},false,0.0f},
+  {"beyond segment",{0.25f,0.25f,3.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},false,0.0f},
+  {"segment endpoint",{0.25f,0.25f,2.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},true,1.0f},
+  {"parallel segment",{0.25f,0.25f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},false,0.0f},
+  {"degenerate triangle",{0.25f,0.25f,1.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},false,0.0f},
+  {"triangle edge",{0.5f,0.5f,1.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},true,0.5f},
+  {"reversed winding",{0.25f,0.25f,-1.0f,0.0f},{0.0f,0.0f,2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},true,0.5f},
+  {"ramp hit",{1.0f,1.0f,2.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
+   {0.0f,0.0f,0.0f,0.0f},{4.0f,0.0f,4.0f,0.0f},{0.0f,4.0f,0.0f,0.0f},true,0.5f},
+ };
+ for(const auto& test:cases) {
+  const Result result=runCollision(test);
+  check(result.hit==test.hit,test.label);
+  if(test.hit) check(std::fabs(result.t-test.t)<0.00001f,test.label);
+ }
+ std::puts("PASS: original VU0 collision kernel handles ramps, misses, limits, degeneracy, edges and winding");
+}
+#endif
 static void testOriginalSyscallLookup(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
  const uint32_t handlers[][2]={
   {0x000000fcu,0x80076440u},{0x000000feu,0x80076440u},
@@ -390,8 +454,44 @@ static void testMpegPssParsing() {
  }
  std::puts("PASS: PSS PES timestamps, private prefix and packet-spanning planar PCM");
 }
+static void testMpegFrameLayout() {
+ constexpr uint32_t width=32u,height=32u,destAddr=0x1000u;
+ std::vector<uint8_t> rgba(width*height*4u);
+ for(uint32_t y=0u;y<height;++y) {
+  for(uint32_t x=0u;x<width;++x) {
+   const size_t src=(static_cast<size_t>(y)*width+x)*4u;
+   rgba[src+0u]=static_cast<uint8_t>(x);
+   rgba[src+1u]=static_cast<uint8_t>(y);
+   rgba[src+2u]=static_cast<uint8_t>(x^y);
+   rgba[src+3u]=0u;
+  }
+ }
+ std::vector<uint8_t> rdram(destAddr+width*height*4u,0x5au);
+ check(ps2_stubs::writeMpegRgbaFrameForTesting(rdram,destAddr,width,height,rgba),
+       "MPEG RGBA frame writer accepts a complete source frame");
+ for(uint32_t y=0u;y<height;++y) {
+  for(uint32_t x=0u;x<width;++x) {
+   const uint32_t block=(x/16u)*2u+y/16u;
+   const size_t dst=destAddr+block*16u*16u*4u+(y%16u)*16u*4u+(x%16u)*4u;
+   const size_t src=(static_cast<size_t>(y)*width+x)*4u;
+   check(rdram[dst+0u]==rgba[src+0u] && rdram[dst+1u]==rgba[src+1u] &&
+         rdram[dst+2u]==rgba[src+2u] && rdram[dst+3u]==0x80u,
+         "MPEG guest image stores column-major 16x16 RGBA macroblocks");
+  }
+ }
+ std::vector<uint8_t> partial(17u*19u*4u,0u);
+ rdram.assign(rdram.size(),0x5au);
+ check(ps2_stubs::writeMpegRgbaFrameForTesting(rdram,destAddr,17,19,partial),
+       "MPEG RGBA frame writer pads partial macroblocks");
+ const size_t padding=destAddr+3u*16u*16u*4u+15u*16u*4u+15u*4u;
+ check(rdram[padding+0u]==0u && rdram[padding+1u]==0u &&
+       rdram[padding+2u]==0u && rdram[padding+3u]==0x80u,
+       "MPEG macroblock padding is opaque black");
+ std::puts("PASS: MPEG guest frames use column-major 16x16 macroblocks with row-major RGBA pixels");
+}
 int main() {
  testMpegPssParsing();
+ testMpegFrameLayout();
  PS2Runtime runtime; R5900Context context;
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
  check(runtime.missingFunctionPolicy()==PS2Runtime::MissingFunctionPolicy::Stop,"missing EE functions stop by default");
@@ -454,6 +554,7 @@ int main() {
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
  testInvalidDmaAddresses();
  testVu0DataMemory(runtime,ram);
+ testVu0CollisionKernel(runtime);
 #endif
  auto fatalRuntime=std::make_unique<PS2Runtime>(); R5900Context fatalContext;
  fatalRuntime->setMissingFunctionPolicy(PS2Runtime::MissingFunctionPolicy::Stop);

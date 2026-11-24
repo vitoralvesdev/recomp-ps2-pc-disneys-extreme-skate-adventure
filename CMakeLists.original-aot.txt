@@ -20,7 +20,9 @@ target_sources(runtime_flow_test PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d2b90_0x2d2b90.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d3848_0x2d3848.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d3888_0x2d3888.cpp")
-target_include_directories(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra")
+target_include_directories(runtime_flow_test PRIVATE
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra"
+ "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu")
 target_compile_definitions(runtime_flow_test PRIVATE DISNEY_TEST_ORIGINAL_AOT)
 target_precompile_headers(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include/ps2_runtime.h")
 set(DISNEY_ORIGINAL_IOP_LIBRARY "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib" CACHE FILEPATH "Prebuilt Disney original IOP library")

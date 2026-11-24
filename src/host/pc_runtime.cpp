@@ -1758,8 +1758,7 @@ void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint3
         return;
     }
 
-    // Experiments 2/3/4: capture the collision kernel inputs, the VU0 run outcome and
-    // (once) the VU0 data memory image that the port never feeds to VLQI/VSQI.
+    // Capture collision inputs/results; the optional memory dump compares VU0 data with RDRAM.
     const bool expCollision = Ps2Exp::on(Ps2Exp::kCollision) && startPC == 0x7E8u;
     const bool expBudget = Ps2Exp::on(Ps2Exp::kBudget);
     Ps2Exp::CollisionRow collisionRow;
