@@ -639,6 +639,7 @@ PS2Runtime::~PS2Runtime()
         m_audioBackend.stopAll();
         m_audioBackend.setAudioReady(false);
 #else
+        m_audioBackend.endPcmStream();
         if (IsAudioDeviceReady())
         {
             disneyAudioShutdown();

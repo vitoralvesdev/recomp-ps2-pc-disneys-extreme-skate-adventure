@@ -7,3 +7,4 @@
 *.ico binary
 *.glb binary
 *.dscollision binary
+vendor/PS2Recomp-port.patch -whitespace

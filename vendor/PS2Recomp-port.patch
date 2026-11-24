@@ -4782,3 +4782,762 @@ index 0000000..43dbaa9
 +}
 +
 +#endif
+
+diff --git a/ps2xRuntime/include/runtime/ps2_audio.h b/ps2xRuntime/include/runtime/ps2_audio.h
+--- a/ps2xRuntime/include/runtime/ps2_audio.h
++++ b/ps2xRuntime/include/runtime/ps2_audio.h
+@@ -23,6 +23,9 @@
+               uint32_t voiceIndex = 0xFFFFFFFFu);
+     void stop(uint32_t voiceId);
+     void stopAll();
++    bool beginPcmStream(uint32_t sampleRate, uint32_t channels);
++    bool appendPcmStream(const int16_t *pcm, uint32_t frameCount, uint32_t sampleRate, uint32_t channels);
++    void endPcmStream();
+     void setAudioReady(bool ready) { m_audioReady = ready; }
+ 
+ private:
+@@ -44,6 +47,9 @@
+     void playDecodedSample(uint32_t sampleKey, DecodedSample &sample, float pitch, float volume,
+                           bool isBgm = false);
+     void pruneFinishedSounds();
++    void renderPcmStream(void *buffer, uint32_t frames);
++    void stopPcmStreamUnlocked();
++    static void pcmStreamCallback(void *buffer, uint32_t frames);
+ };
+ 
+ #endif
+diff --git a/ps2xRuntime/src/lib/ps2_audio.cpp b/ps2xRuntime/src/lib/ps2_audio.cpp
+--- a/ps2xRuntime/src/lib/ps2_audio.cpp
++++ b/ps2xRuntime/src/lib/ps2_audio.cpp
+@@ -1,7 +1,9 @@
+ #include "runtime/ps2_audio.h"
+ #include "runtime/ps2_memory.h"
+ #include "ps2_host_backend.h"
++#include <algorithm>
+ #include <array>
++#include <atomic>
+ #include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+@@ -9,6 +11,8 @@
+ 
+ namespace
+ {
++    std::atomic<PS2AudioBackend *> g_pcmStreamBackend{nullptr};
++
+     std::vector<uint8_t> buildWavFromPcm(const int16_t *pcm, size_t sampleCount, uint32_t sampleRate)
+     {
+         const uint32_t dataSize = static_cast<uint32_t>(sampleCount * 2);
+@@ -80,6 +84,12 @@
+         uint32_t sampleKey;
+     };
+     std::vector<TrackedSound> activeSounds;
++    AudioStream pcmStream{};
++    bool pcmStreamActive = false;
++    uint32_t pcmSampleRate = 0u;
++    uint32_t pcmChannels = 0u;
++    std::vector<float> pcmQueue;
++    size_t pcmReadOffset = 0u;
+ };
+ 
+ PS2AudioBackend::PS2AudioBackend() : m_impl(std::make_unique<Impl>())
+@@ -90,6 +100,158 @@
+ {
+     if (m_impl)
+         stopAll();
++}
++
++void PS2AudioBackend::stopPcmStreamUnlocked()
++{
++    PS2AudioBackend *expected = this;
++    g_pcmStreamBackend.compare_exchange_strong(expected, nullptr);
++    if (m_impl->pcmStreamActive)
++    {
++        if (IsAudioDeviceReady())
++        {
++            StopAudioStream(m_impl->pcmStream);
++            UnloadAudioStream(m_impl->pcmStream);
++        }
++        m_impl->pcmStream = AudioStream{};
++        m_impl->pcmStreamActive = false;
++    }
++    m_impl->pcmSampleRate = 0u;
++    m_impl->pcmChannels = 0u;
++    m_impl->pcmQueue.clear();
++    m_impl->pcmReadOffset = 0u;
++}
++
++bool PS2AudioBackend::beginPcmStream(uint32_t sampleRate, uint32_t channels)
++{
++#if defined(PLATFORM_VITA)
++    (void)sampleRate;
++    (void)channels;
++    return false;
++#else
++    if (!m_audioReady || !IsAudioDeviceReady() || sampleRate == 0u || sampleRate > 192000u ||
++        (channels != 1u && channels != 2u))
++    {
++        return false;
++    }
++
++    std::lock_guard<std::mutex> lock(m_mutex);
++    if (m_impl->pcmStreamActive && m_impl->pcmSampleRate == sampleRate && m_impl->pcmChannels == channels)
++    {
++        return true;
++    }
++    stopPcmStreamUnlocked();
++    m_impl->pcmStream = LoadAudioStream(48000, 32, 2);
++    if (m_impl->pcmStream.buffer == nullptr || m_impl->pcmStream.sampleRate != 48000u)
++    {
++        return false;
++    }
++    m_impl->pcmSampleRate = sampleRate;
++    m_impl->pcmChannels = channels;
++    m_impl->pcmStreamActive = true;
++    g_pcmStreamBackend.store(this);
++    SetAudioStreamCallback(m_impl->pcmStream, &PS2AudioBackend::pcmStreamCallback);
++    PlayAudioStream(m_impl->pcmStream);
++    return true;
++#endif
++}
++
++bool PS2AudioBackend::appendPcmStream(const int16_t *pcm, uint32_t frameCount,
++                                      uint32_t sampleRate, uint32_t channels)
++{
++    if (!pcm || frameCount == 0u || sampleRate == 0u || sampleRate > 192000u ||
++        (channels != 1u && channels != 2u))
++    {
++        return false;
++    }
++
++    std::lock_guard<std::mutex> lock(m_mutex);
++    if (!m_impl->pcmStreamActive || m_impl->pcmSampleRate != sampleRate || m_impl->pcmChannels != channels)
++    {
++        return false;
++    }
++
++    const uint32_t outputFrames = (static_cast<uint64_t>(frameCount) * 48000u + sampleRate / 2u) / sampleRate;
++    m_impl->pcmQueue.reserve(m_impl->pcmQueue.size() + static_cast<size_t>(outputFrames) * 2u);
++    for (uint32_t out = 0u; out < outputFrames; ++out)
++    {
++        const uint32_t sourcePosition = (static_cast<uint64_t>(out) * sampleRate) / 48000u;
++        const uint32_t sourceIndex = std::min(sourcePosition, frameCount - 1u);
++        const uint32_t nextIndex = std::min(sourceIndex + 1u, frameCount - 1u);
++        const uint32_t fraction = (static_cast<uint64_t>(out) * sampleRate) % 48000u;
++        for (uint32_t channel = 0u; channel < 2u; ++channel)
++        {
++            const uint32_t sourceChannel = channels == 1u ? 0u : channel;
++            const int32_t first = pcm[static_cast<size_t>(sourceIndex) * channels + sourceChannel];
++            const int32_t second = pcm[static_cast<size_t>(nextIndex) * channels + sourceChannel];
++            const int32_t interpolated = first + ((second - first) * static_cast<int32_t>(fraction)) / 48000;
++            m_impl->pcmQueue.push_back(static_cast<float>(interpolated) / 32768.0f);
++        }
++    }
++
++    constexpr size_t kMaxQueuedFloats = 48000u * 2u * 2u;
++    const size_t unreadFloats = m_impl->pcmQueue.size() - m_impl->pcmReadOffset;
++    if (unreadFloats > kMaxQueuedFloats)
++    {
++        const size_t drop = unreadFloats - kMaxQueuedFloats;
++        const size_t eraseCount = m_impl->pcmReadOffset + drop;
++        m_impl->pcmQueue.erase(m_impl->pcmQueue.begin(),
++                               m_impl->pcmQueue.begin() + static_cast<ptrdiff_t>(eraseCount));
++        m_impl->pcmReadOffset = 0u;
++    }
++    return true;
++}
++
++void PS2AudioBackend::renderPcmStream(void *buffer, uint32_t frames)
++{
++    if (!buffer)
++    {
++        return;
++    }
++    std::lock_guard<std::mutex> lock(m_mutex);
++    float *output = static_cast<float *>(buffer);
++    const size_t availableFrames = m_impl->pcmQueue.size() - m_impl->pcmReadOffset;
++    const size_t copyFrames = std::min<size_t>(frames, availableFrames / 2u);
++    for (size_t frame = 0u; frame < copyFrames; ++frame)
++    {
++        const size_t source = m_impl->pcmReadOffset + frame * 2u;
++        output[frame * 2u] = m_impl->pcmQueue[source];
++        output[frame * 2u + 1u] = m_impl->pcmQueue[source + 1u];
++    }
++    for (size_t frame = copyFrames; frame < frames; ++frame)
++    {
++        output[frame * 2u] = 0.0f;
++        output[frame * 2u + 1u] = 0.0f;
++    }
++    m_impl->pcmReadOffset += copyFrames * 2u;
++    if (m_impl->pcmReadOffset == m_impl->pcmQueue.size())
++    {
++        m_impl->pcmQueue.clear();
++        m_impl->pcmReadOffset = 0u;
++    }
++    else if (m_impl->pcmReadOffset > 65536u)
++    {
++        m_impl->pcmQueue.erase(m_impl->pcmQueue.begin(), m_impl->pcmQueue.begin() + static_cast<ptrdiff_t>(m_impl->pcmReadOffset));
++        m_impl->pcmReadOffset = 0u;
++    }
++}
++
++void PS2AudioBackend::pcmStreamCallback(void *buffer, uint32_t frames)
++{
++    if (PS2AudioBackend *backend = g_pcmStreamBackend.load())
++    {
++        backend->renderPcmStream(buffer, frames);
++    }
++    else if (buffer)
++    {
++        std::memset(buffer, 0, static_cast<size_t>(frames) * 2u * sizeof(float));
++    }
++}
++
++void PS2AudioBackend::endPcmStream()
++{
++    std::lock_guard<std::mutex> lock(m_mutex);
++    stopPcmStreamUnlocked();
+ }
+ 
+ void PS2AudioBackend::onVagTransfer(const uint8_t *rdram, uint32_t srcAddr, uint32_t sizeBytes)
+@@ -359,6 +521,7 @@
+ 
+ void PS2AudioBackend::stopAll()
+ {
++    endPcmStream();
+     std::lock_guard<std::mutex> lock(m_mutex);
+ #if defined(PLATFORM_VITA)
+     return;
+diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h b/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h
+--- a/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h
++++ b/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.h
+@@ -4,6 +4,23 @@
+ 
+ namespace ps2_stubs
+ {
++    struct MpegPesLayoutForTesting
++    {
++        size_t payloadOffset = 0u;
++        int64_t pts90k = -1;
++        int64_t dts90k = -1;
++    };
++
++    struct MpegPssAudioForTesting
++    {
++        uint32_t sampleRate = 0u;
++        uint32_t channels = 0u;
++        std::vector<int16_t> pcm;
++    };
++
++    MpegPesLayoutForTesting inspectMpegPesHeaderForTesting(const uint8_t *packet, size_t packetSize, uint8_t streamId);
++    bool decodeMpegPssAudioForTesting(const uint8_t *pss, size_t size, MpegPssAudioForTesting &result);
++
+     void resetMpegStubState();
+     void enqueueMpegDecodedFrameForTesting(uint32_t mpegAddr);
+     void notifyMpegCdStreamStart(PS2Runtime *runtime = nullptr);
+diff --git a/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp b/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
+--- a/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
++++ b/ps2xRuntime/src/lib/Kernel/Stubs/MPEG.cpp
+@@ -483,6 +483,169 @@
+         constexpr uint64_t kDefaultPictureIntervalQ32 = 2ull * kPictureClockOne;
+         constexpr size_t kMpegTimingScanLimit = 4096u;
+         constexpr size_t kMaxDecodedPicturesAhead = 8u;
++        constexpr int64_t kMpegAudioLead90k = 4500;
++
++        struct MpegPssAudioBlock
++        {
++            int64_t pts90k = -1;
++            std::vector<int16_t> pcm;
++        };
++
++        class MpegPssAudioDecoder
++        {
++        public:
++            bool feed(const uint8_t *payload, size_t size, int64_t pts90k, std::deque<MpegPssAudioBlock> &blocks)
++            {
++                if (!payload || size < 4u || payload[0] != 0xFFu || payload[1] != 0xA0u ||
++                    payload[2] != 0x00u || payload[3] != 0x00u)
++                {
++                    return false;
++                }
++
++                size_t pos = 4u;
++                if (pos + 8u <= size && std::memcmp(payload + pos, "SShd", 4u) == 0)
++                {
++                    if (pos + 32u > size)
++                    {
++                        return false;
++                    }
++                    const uint32_t type = readLe32(payload + pos + 8u);
++                    const uint32_t sampleRate = readLe32(payload + pos + 12u);
++                    const uint32_t channels = readLe32(payload + pos + 16u);
++                    const uint32_t blockSize = readLe32(payload + pos + 20u);
++                    if ((type != 0u && type != 1u) || sampleRate < 8000u || sampleRate > 192000u ||
++                        (channels != 1u && channels != 2u) || blockSize < 2u || blockSize > 65536u ||
++                        (blockSize & 1u) != 0u)
++                    {
++                        return false;
++                    }
++                    if (!m_configured || m_type != type || m_sampleRate != sampleRate ||
++                        m_channels != channels || m_blockSize != blockSize)
++                    {
++                        m_left.clear();
++                        m_right.clear();
++                        m_partialPts90k = -1;
++                    }
++                    m_configured = true;
++                    m_type = static_cast<uint8_t>(type);
++                    m_sampleRate = sampleRate;
++                    m_channels = channels;
++                    m_blockSize = blockSize;
++                    pos += 32u;
++                }
++
++                if (!m_configured)
++                {
++                    return false;
++                }
++
++                uint64_t framesProduced = 0u;
++                if (pos + 8u <= size && std::memcmp(payload + pos, "SSbd", 4u) == 0)
++                {
++                    while (pos + 8u <= size && std::memcmp(payload + pos, "SSbd", 4u) == 0)
++                    {
++                        const uint32_t blockBytes = readLe32(payload + pos + 4u);
++                        pos += 8u;
++                        const size_t available = size - pos;
++                        const size_t chunkBytes = std::min(static_cast<size_t>(blockBytes), available);
++                        consumePcm(payload + pos, chunkBytes, pts90k, framesProduced, blocks);
++                        pos += chunkBytes;
++                        if (chunkBytes < blockBytes)
++                        {
++                            break;
++                        }
++                    }
++                }
++                else
++                {
++                    consumePcm(payload + pos, size - pos, pts90k, framesProduced, blocks);
++                }
++                return true;
++            }
++
++            uint32_t sampleRate() const { return m_sampleRate; }
++            uint32_t channels() const { return m_channels; }
++
++        private:
++            void consumePcm(const uint8_t *data, size_t size, int64_t pts90k,
++                            uint64_t &framesProduced, std::deque<MpegPssAudioBlock> &blocks)
++            {
++                size_t cursor = 0u;
++                while (cursor < size)
++                {
++                    if (m_partialPts90k < 0)
++                    {
++                        m_partialPts90k = pts90k >= 0
++                                              ? pts90k + static_cast<int64_t>((framesProduced * 90000u) / m_sampleRate)
++                                              : -1;
++                    }
++
++                    const size_t leftNeeded = m_blockSize - m_left.size();
++                    const size_t leftTake = std::min(leftNeeded, size - cursor);
++                    m_left.insert(m_left.end(), data + cursor, data + cursor + leftTake);
++                    cursor += leftTake;
++                    if (m_left.size() < m_blockSize)
++                    {
++                        continue;
++                    }
++
++                    if (m_channels == 2u)
++                    {
++                        const size_t rightNeeded = m_blockSize - m_right.size();
++                        const size_t rightTake = std::min(rightNeeded, size - cursor);
++                        m_right.insert(m_right.end(), data + cursor, data + cursor + rightTake);
++                        cursor += rightTake;
++                        if (m_right.size() < m_blockSize)
++                        {
++                            continue;
++                        }
++                    }
++
++                    MpegPssAudioBlock block;
++                    block.pts90k = m_partialPts90k;
++                    block.pcm.reserve(static_cast<size_t>(m_blockSize) * 2u);
++                    for (size_t i = 0u; i < m_blockSize; i += 2u)
++                    {
++                        const int16_t left = decodePcm16(m_left.data() + i, m_type);
++                        const int16_t right = m_channels == 2u
++                                                  ? decodePcm16(m_right.data() + i, m_type)
++                                                  : left;
++                        block.pcm.push_back(left);
++                        block.pcm.push_back(right);
++                    }
++                    framesProduced += m_blockSize / 2u;
++                    blocks.push_back(std::move(block));
++                    m_left.clear();
++                    m_right.clear();
++                    m_partialPts90k = -1;
++                }
++            }
++
++            static uint32_t readLe32(const uint8_t *p)
++            {
++                return static_cast<uint32_t>(p[0]) |
++                       (static_cast<uint32_t>(p[1]) << 8u) |
++                       (static_cast<uint32_t>(p[2]) << 16u) |
++                       (static_cast<uint32_t>(p[3]) << 24u);
++            }
++
++            static int16_t decodePcm16(const uint8_t *p, uint8_t type)
++            {
++                const uint16_t raw = type == 0u
++                                         ? (static_cast<uint16_t>(p[0]) << 8u) | static_cast<uint16_t>(p[1])
++                                         : static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8u);
++                return static_cast<int16_t>(raw);
++            }
++
++            bool m_configured = false;
++            uint8_t m_type = 0u;
++            uint32_t m_sampleRate = 0u;
++            uint32_t m_channels = 0u;
++            uint32_t m_blockSize = 0u;
++            int64_t m_partialPts90k = -1;
++            std::vector<uint8_t> m_left;
++            std::vector<uint8_t> m_right;
++        };
+ 
+         struct MpegPlaybackState
+         {
+@@ -501,6 +664,8 @@
+             std::vector<uint8_t> pssBuffer;
+             std::vector<uint32_t> pssGuestAddrs;
+             std::deque<MpegDecodedFrame> decodedFrames;
++            MpegPssAudioDecoder pssAudio;
++            std::deque<MpegPssAudioBlock> audioBlocks;
+             std::unique_ptr<MpegFfmpegDecoder> decoder;
+             uint8_t frameRateCode = 0u;
+             uint8_t frameRateExtensionN = 0u;
+@@ -526,6 +691,7 @@
+             uint64_t pts = 0xFFFFFFFFFFFFFFFFull;
+             uint64_t dts = 0xFFFFFFFFFFFFFFFFull;
+             std::vector<MpegRegisteredCallback> callbacks;
++            std::vector<uint8_t> payload;
+         };
+ 
+         struct MpegStubState
+@@ -1038,7 +1204,7 @@
+             {
+                 const uint8_t ptsDtsFlags = packet[pos + 1u] & 0xC0u;
+                 const size_t headerDataLength = static_cast<size_t>(packet[pos + 2u]);
+-                const size_t optionalStart = 9u;
++                const size_t optionalStart = pos + 3u;
+                 const size_t optionalEnd = std::min(packetSize, optionalStart + headerDataLength);
+                 if ((ptsDtsFlags == 0x80u || ptsDtsFlags == 0xC0u) && optionalEnd >= optionalStart + 5u)
+                 {
+@@ -1249,6 +1415,7 @@
+         void queueStreamCallbackEvent(uint32_t mpegAddr,
+                                       uint32_t streamType,
+                                       uint32_t dataAddr,
++                                      const uint8_t *payload,
+                                       uint32_t len,
+                                       std::vector<MpegStreamCallbackEvent> &callbackEvents,
+                                       int64_t pts90k = -1,
+@@ -1264,6 +1431,10 @@
+             event.callbacks = matchingStreamCallbacks(mpegAddr, streamType);
+             if (!event.callbacks.empty())
+             {
++                if (payload && len != 0u)
++                {
++                    event.payload.assign(payload, payload + len);
++                }
+                 callbackEvents.push_back(std::move(event));
+             }
+         }
+@@ -1437,6 +1608,7 @@
+                                 mpegAddr,
+                                 kMpegStrM2V,
+                                 playback.pssGuestAddrs[payloadStart],
++                                nullptr,
+                                 static_cast<uint32_t>(packetEnd - payloadStart),
+                                 callbackEvents,
+                                 pes.pts90k,
+@@ -1454,24 +1626,34 @@
+                 {
+                     const MpegPesHeader pes = parsePesHeader(buffer.data(), packetEnd);
+                     const size_t payloadStart = pes.payloadOffset;
+-                    if (payloadStart < packetEnd && payloadStart < playback.pssGuestAddrs.size())
+-                    {
+-                        queueStreamCallbackEvent(
+-                            mpegAddr,
+-                            kMpegStrPCM,
+-                            playback.pssGuestAddrs[payloadStart],
+-                            static_cast<uint32_t>(packetEnd - payloadStart),
+-                            callbackEvents,
++                    if (payloadStart < packetEnd)
++                    {
++                        playback.pssAudio.feed(
++                            buffer.data() + payloadStart,
++                            packetEnd - payloadStart,
+                             pes.pts90k,
+-                            pes.dts90k);
+-                        queueStreamCallbackEvent(
+-                            mpegAddr,
+-                            kMpegStrADPCM,
+-                            playback.pssGuestAddrs[payloadStart],
+-                            static_cast<uint32_t>(packetEnd - payloadStart),
+-                            callbackEvents,
+-                            pes.pts90k,
+-                            pes.dts90k);
++                            playback.audioBlocks);
++                        if (payloadStart < playback.pssGuestAddrs.size())
++                        {
++                            queueStreamCallbackEvent(
++                                mpegAddr,
++                                kMpegStrPCM,
++                                playback.pssGuestAddrs[payloadStart],
++                                buffer.data() + payloadStart,
++                                static_cast<uint32_t>(packetEnd - payloadStart),
++                                callbackEvents,
++                                pes.pts90k,
++                                pes.dts90k);
++                            queueStreamCallbackEvent(
++                                mpegAddr,
++                                kMpegStrADPCM,
++                                playback.pssGuestAddrs[payloadStart],
++                                buffer.data() + payloadStart,
++                                static_cast<uint32_t>(packetEnd - payloadStart),
++                                callbackEvents,
++                                pes.pts90k,
++                                pes.dts90k);
++                        }
+                     }
+                 }
+ 
+@@ -1717,14 +1899,40 @@
+                 return;
+             }
+ 
++            uint32_t payloadAddr = 0u;
++            if (event.len != 0u)
++            {
++                payloadAddr = runtime->guestMalloc(event.len, 16u);
++                uint8_t *payload = payloadAddr != 0u ? getMemPtr(rdram, payloadAddr) : nullptr;
++                if (!payload)
++                {
++                    if (payloadAddr != 0u)
++                    {
++                        runtime->guestFree(payloadAddr);
++                    }
++                    return;
++                }
++                std::memcpy(payload, event.payload.data(), event.len);
++            }
++
+             const uint32_t cbDataAddr = runtime->guestMalloc(kMpegCallbackDataSize, 16u);
+             if (cbDataAddr == 0u)
+             {
++                if (payloadAddr != 0u)
++                {
++                    runtime->guestFree(payloadAddr);
++                }
+                 return;
+             }
+-            if (!writeMpegCallbackData(rdram, cbDataAddr, event))
++            MpegStreamCallbackEvent callbackEvent = event;
++            callbackEvent.dataAddr = payloadAddr;
++            if (!writeMpegCallbackData(rdram, cbDataAddr, callbackEvent))
+             {
+                 runtime->guestFree(cbDataAddr);
++                if (payloadAddr != 0u)
++                {
++                    runtime->guestFree(payloadAddr);
++                }
+                 return;
+             }
+ 
+@@ -1740,9 +1948,13 @@
+             GuestInvocation invocation{};
+             invocation.kind = GuestInvocationKind::RpcCallback;
+             invocation.context = callbackCtx;
+-            invocation.onComplete = [runtime, cbDataAddr](const R5900Context &, R5900Context &)
++            invocation.onComplete = [runtime, cbDataAddr, payloadAddr](const R5900Context &, R5900Context &)
+             {
+                 runtime->guestFree(cbDataAddr);
++                if (payloadAddr != 0u)
++                {
++                    runtime->guestFree(payloadAddr);
++                }
+             };
+             runtime->eeScheduler().queueInvocation(std::move(invocation));
+         }
+@@ -1866,6 +2078,33 @@
+                         }
+                     }
+                 }
++            }
++        }
++
++        void drainPssAudio(PS2Runtime *runtime, MpegPlaybackState &playback, int64_t framePts90k, bool drainAll)
++        {
++            if (!runtime || playback.audioBlocks.empty())
++            {
++                return;
++            }
++            while (!playback.audioBlocks.empty())
++            {
++                const MpegPssAudioBlock &block = playback.audioBlocks.front();
++                if (!drainAll && block.pts90k >= 0 && framePts90k >= 0 && block.pts90k > framePts90k + kMpegAudioLead90k)
++                {
++                    break;
++                }
++                if (!runtime->audioBackend().beginPcmStream(playback.pssAudio.sampleRate(), playback.pssAudio.channels()))
++                {
++                    return;
++                }
++                const uint32_t frames = static_cast<uint32_t>(block.pcm.size() / 2u);
++                if (!runtime->audioBackend().appendPcmStream(
++                        block.pcm.data(), frames, playback.pssAudio.sampleRate(), playback.pssAudio.channels()))
++                {
++                    return;
++                }
++                playback.audioBlocks.pop_front();
+             }
+         }
+ 
+@@ -1901,6 +2140,79 @@
+         resetMpegStubStateUnlocked();
+     }
+ 
++    MpegPesLayoutForTesting inspectMpegPesHeaderForTesting(const uint8_t *packet, size_t packetSize, uint8_t streamId)
++    {
++        (void)streamId;
++        const MpegPesHeader pes = parsePesHeader(packet, packetSize);
++        return {pes.payloadOffset, pes.pts90k, pes.dts90k};
++    }
++
++    bool decodeMpegPssAudioForTesting(const uint8_t *pss, size_t size, MpegPssAudioForTesting &result)
++    {
++        result = {};
++        if (!pss || size < 4u)
++        {
++            return false;
++        }
++
++        MpegPssAudioDecoder decoder;
++        std::deque<MpegPssAudioBlock> blocks;
++        size_t pos = 0u;
++        while (pos + 4u <= size)
++        {
++            if (pss[pos] != 0x00u || pss[pos + 1u] != 0x00u || pss[pos + 2u] != 0x01u)
++            {
++                ++pos;
++                continue;
++            }
++            const uint8_t streamId = pss[pos + 3u];
++            if (streamId == kMpegProgramEnd)
++            {
++                break;
++            }
++            if (streamId == kMpegPackHeader)
++            {
++                if (pos + 14u > size)
++                {
++                    return false;
++                }
++                pos += 14u + static_cast<size_t>(pss[pos + 13u] & 0x07u);
++                continue;
++            }
++            if (pos + 6u > size)
++            {
++                return false;
++            }
++            const size_t packetLength = (static_cast<size_t>(pss[pos + 4u]) << 8u) | pss[pos + 5u];
++            const size_t packetEnd = pos + 6u + packetLength;
++            if (packetEnd > size)
++            {
++                return false;
++            }
++            if (isAudioStreamId(streamId))
++            {
++                const MpegPesHeader pes = parsePesHeader(pss + pos, packetEnd - pos);
++                if (pes.payloadOffset < packetEnd - pos &&
++                    !decoder.feed(pss + pos + pes.payloadOffset,
++                                  packetEnd - (pos + pes.payloadOffset),
++                                  pes.pts90k,
++                                  blocks))
++                {
++                    return false;
++                }
++            }
++            pos = packetEnd;
++        }
++
++        result.sampleRate = decoder.sampleRate();
++        result.channels = decoder.channels();
++        for (const MpegPssAudioBlock &block : blocks)
++        {
++            result.pcm.insert(result.pcm.end(), block.pcm.begin(), block.pcm.end());
++        }
++        return result.sampleRate != 0u && !result.pcm.empty();
++    }
++
+     void enqueueMpegDecodedFrameForTesting(uint32_t mpegAddr)
+     {
+         constexpr int kTestFrameWidth = 16;
+@@ -1917,9 +2229,13 @@
+         playback.decodedFrames.push_back(std::move(frame));
+     }
+ 
++
+     void notifyMpegCdStreamStart(PS2Runtime *runtime)
+     {
+-        (void)runtime;
++        if (runtime)
++        {
++            runtime->audioBackend().endPcmStream();
++        }
+         std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
+         ++g_mpeg_stub_state.cdStreamGeneration;
+         g_mpeg_stub_state.cdStreamBytesProduced = 0u;
+@@ -2300,6 +2616,7 @@
+         (void)rdram;
+ 
+         const uint32_t mpegAddr = getRegU32(ctx, 4);
++        runtime->audioBackend().endPcmStream();
+         {
+             std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
+             g_mpeg_stub_state.callbacksByMpeg.erase(mpegAddr);
+@@ -2687,6 +3004,7 @@
+                 playback.nextPictureTickQ32 = presentationTargetQ32 + frameIntervalQ32;
+                 playback.presentationEndTickQ32 = playback.nextPictureTickQ32;
+                 haveFrame = true;
++                drainPssAudio(runtime, playback, frame.pts90k, false);
+                 consumeGuestMirrorRing(rdram, mpegAddr, "picture");
+                 mpegTrace(g_mpeg_stub_state.pictureTraceCount, 64u, [&]
+                           {
+@@ -2718,6 +3036,7 @@
+                 terminalEnd = playback.streamEnded;
+                 if (terminalEnd)
+                 {
++                    drainPssAudio(runtime, playback, -1, true);
+                     width = 0u;
+                     height = 0u;
+                     frameCount = 0u;
+@@ -2831,6 +3150,7 @@
+     void sceMpegInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+         (void)rdram;
++        runtime->audioBackend().endPcmStream();
+         std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
+         const uint64_t cdStreamGeneration = g_mpeg_stub_state.cdStreamGeneration;
+         const uint64_t cdStreamBytesProduced = g_mpeg_stub_state.cdStreamBytesProduced;
+@@ -2902,8 +3222,8 @@
+ 
+     void sceMpegReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+     {
+-        (void)runtime;
+         const uint32_t param_1 = getRegU32(ctx, 4);
++        runtime->audioBackend().endPcmStream();
+         {
+             std::lock_guard<std::mutex> lock(g_mpeg_stub_mutex);
+             MpegPlaybackState &playback = getPlaybackState(param_1);

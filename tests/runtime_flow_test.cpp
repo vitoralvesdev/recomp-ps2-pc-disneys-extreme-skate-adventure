@@ -1,4 +1,5 @@
 #include "ps2_runtime.h"
+#include "Stubs/MPEG.h"
 #include "runtime/ee_scheduler.h"
 #include <vector>
 #include <cstdio>
@@ -307,7 +308,90 @@ static void testInvalidDmaAddresses() {
 #endif
 #include "test_native_vblank.inl"
 #include "test_irq_atomic.inl"
+static void appendBe16(std::vector<uint8_t>& data,uint16_t value) {
+ data.push_back(static_cast<uint8_t>(value>>8u)); data.push_back(static_cast<uint8_t>(value));
+}
+static void appendPesTimestamp(std::vector<uint8_t>& data,uint32_t value) {
+ data.push_back(static_cast<uint8_t>(0x21u|((value>>30u)&7u)<<1u));
+ data.push_back(static_cast<uint8_t>(value>>22u));
+ data.push_back(static_cast<uint8_t>(0x01u|((value>>15u)&0x7fu)<<1u));
+ data.push_back(static_cast<uint8_t>(value>>7u));
+ data.push_back(static_cast<uint8_t>(0x01u|(value&0x7fu)<<1u));
+}
+static void appendPesPacket(std::vector<uint8_t>& pss,uint8_t streamId,const std::vector<uint8_t>& payload) {
+ pss.insert(pss.end(),{0x00u,0x00u,0x01u,streamId});
+ appendBe16(pss,static_cast<uint16_t>(payload.size()));
+ pss.insert(pss.end(),payload.begin(),payload.end());
+}
+static std::vector<uint8_t> pssPtsHeader(uint32_t pts) {
+ std::vector<uint8_t> payload={0x83u,0x80u,0x0Au};
+ appendPesTimestamp(payload,pts);
+ payload.insert(payload.end(),5u,0xffu);
+ return payload;
+}
+static void testMpegPssParsing() {
+ std::vector<uint8_t> video={0x83u,0xc0u,0x0du};
+ appendPesTimestamp(video,3830u); appendPesTimestamp(video,3003u);
+ video.insert(video.end(),3u,0xffu);
+ video.insert(video.end(),{0x00u,0x00u,0x01u,0xb3u});
+ std::vector<uint8_t> packet={0x00u,0x00u,0x01u,0xe0u};
+ appendBe16(packet,static_cast<uint16_t>(video.size())); packet.insert(packet.end(),video.begin(),video.end());
+ auto layout=ps2_stubs::inspectMpegPesHeaderForTesting(packet.data(),packet.size(),0xe0u);
+ check(layout.payloadOffset==22u,"PSS PTS+DTS video payload starts after the real optional fields");
+ check(layout.pts90k==3830 && layout.dts90k==3003,"PSS video timestamps use PES-relative offsets 3 and 8");
+
+ std::vector<uint8_t> privatePayload=pssPtsHeader(3830u);
+ privatePayload.insert(privatePayload.end(),{0xffu,0xa0u,0x00u,0x00u});
+ packet={0x00u,0x00u,0x01u,0xbdu};
+ appendBe16(packet,static_cast<uint16_t>(privatePayload.size())); packet.insert(packet.end(),privatePayload.begin(),privatePayload.end());
+ layout=ps2_stubs::inspectMpegPesHeaderForTesting(packet.data(),packet.size(),0xbdu);
+ check(layout.payloadOffset==19u,"PSS private callback retains the four-byte prefix expected by the guest");
+ check(layout.pts90k==3830,"PSS private audio timestamp uses PES-relative offset 3");
+
+ constexpr uint32_t blockSize=0x200u;
+ std::vector<uint8_t> pcm(blockSize*4u);
+ for(uint32_t i=0u;i<blockSize;i+=2u) {
+  const int16_t left=static_cast<int16_t>(1000u+i/2u);
+  const int16_t right=static_cast<int16_t>(-1000-static_cast<int32_t>(i/2u));
+  pcm[i]=static_cast<uint8_t>(left); pcm[i+1u]=static_cast<uint8_t>(left>>8u);
+  pcm[blockSize+i]=static_cast<uint8_t>(right); pcm[blockSize+i+1u]=static_cast<uint8_t>(right>>8u);
+  const int16_t nextLeft=static_cast<int16_t>(2000u+i/2u);
+  const int16_t nextRight=static_cast<int16_t>(-2000-static_cast<int32_t>(i/2u));
+  pcm[blockSize*2u+i]=static_cast<uint8_t>(nextLeft); pcm[blockSize*2u+i+1u]=static_cast<uint8_t>(nextLeft>>8u);
+  pcm[blockSize*2u+blockSize+i]=static_cast<uint8_t>(nextRight); pcm[blockSize*2u+blockSize+i+1u]=static_cast<uint8_t>(nextRight>>8u);
+ }
+ std::vector<uint8_t> first=pssPtsHeader(3830u);
+ first.insert(first.end(),{0xffu,0xa0u,0x00u,0x00u,'S','S','h','d'});
+ first.insert(first.end(),{
+  0x18u,0x00u,0x00u,0x00u,0x01u,0x00u,0x00u,0x00u,
+  0x80u,0xbbu,0x00u,0x00u,0x02u,0x00u,0x00u,0x00u,
+  0x00u,0x02u,0x00u,0x00u,0xffu,0xffu,0xffu,0xffu,
+  0xffu,0xffu,0xffu,0xffu});
+ first.insert(first.end(),{'S','S','b','d'});
+ first.insert(first.end(),{0x00u,0xd8u,0x1du,0x00u});
+ first.insert(first.end(),pcm.begin(),pcm.begin()+blockSize+blockSize/2u);
+ std::vector<uint8_t> second=pssPtsHeader(6833u);
+ second.insert(second.end(),{0xffu,0xa0u,0x00u,0x00u});
+ second.insert(second.end(),pcm.begin()+blockSize+blockSize/2u,pcm.end());
+ std::vector<uint8_t> pss={0x00u,0x00u,0x01u,0xbau};
+ pss.insert(pss.end(),10u,0x00u); pss.push_back(0x00u); pss.insert(pss.end(),3u,0x00u);
+ appendPesPacket(pss,0xbdu,first); appendPesPacket(pss,0xbdu,second); pss.insert(pss.end(),{0x00u,0x00u,0x01u,0xb9u});
+ ps2_stubs::MpegPssAudioForTesting audio;
+ check(ps2_stubs::decodeMpegPssAudioForTesting(pss.data(),pss.size(),audio),"PSS SS2 PCM decoder accepts real LE32 fields and an SSbd body spanning packets");
+ check(audio.sampleRate==48000u && audio.channels==2u,"PSS SShd selects 48 kHz stereo");
+ check(audio.pcm.size()==blockSize*2u,"PSS planar partial blocks produce two complete stereo blocks");
+ for(uint32_t frame=0u;frame<blockSize/2u;++frame) {
+  const int16_t left=static_cast<int16_t>(1000u+frame);
+  const int16_t right=static_cast<int16_t>(-1000-static_cast<int32_t>(frame));
+  check(audio.pcm[frame*2u]==left && audio.pcm[frame*2u+1u]==right,"PSS first block is deinterleaved little-endian PCM");
+  const int16_t nextLeft=static_cast<int16_t>(2000u+frame);
+  const int16_t nextRight=static_cast<int16_t>(-2000-static_cast<int32_t>(frame));
+  check(audio.pcm[blockSize+frame*2u]==nextLeft && audio.pcm[blockSize+frame*2u+1u]==nextRight,"PSS headerless packet completes and appends planar PCM");
+ }
+ std::puts("PASS: PSS PES timestamps, private prefix and packet-spanning planar PCM");
+}
 int main() {
+ testMpegPssParsing();
  PS2Runtime runtime; R5900Context context;
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
  check(runtime.missingFunctionPolicy()==PS2Runtime::MissingFunctionPolicy::Stop,"missing EE functions stop by default");
