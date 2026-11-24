@@ -13,6 +13,31 @@ Não é um emulador como o PCSX2: o código do jogo é convertido antecipadament
 
 **O repositório não inclui um executável pronto, o programa principal que executa o jogo nem os dados do jogo.**
 
+## Progresso da recompilação
+
+Atualizado em **24/11/2026**. O percentual só é usado quando existe um denominador conhecido; **não mensurável** não significa 0%.
+
+| Componente | Progresso | O que já está feito | O que ainda impede 100% |
+| --- | --- | --- | --- |
+| **EE (R5900)** | **100% da exportação rastreada** | 9.390 funções no escopo Ghidra, incluindo 55 stubs de runtime; 41.864 handlers únicos na tabela AOT; nenhuma entrada ignorada na exportação. Metadados em [recomp/ghidra.toml](recomp/ghidra.toml). | Validar e corrigir os caminhos executados, tratar os stubs e tornar o build AOT reproduzível sem os arquivos locais. |
+| **VU0** | **Não mensurável globalmente** | 1 imagem registrada (`A71F9755…`) e 27 blocos rápidos gerados. O kernel de colisão da entrada `0x7e8` passou na regressão offline com 10 casos, incluindo chão, rampa, erros, limites e winding invertido. | Inventariar as demais imagens e validar colisão, rampas e objetos durante o jogo. |
+| **VU1** | **Não mensurável globalmente** | 1 imagem registrada (`87BD03B7…`) e 254 blocos rápidos gerados, usados pelo runtime AOT. | Cobrir as variantes de microprograma e validar os jobs em todas as fases e telas. |
+| **VIF0 / VIF1** | **Parcial, sem percentual** | Parser de comandos, DMA direto/em chain e regressões de endereço inválido e END vazio. | Medir cobertura de todos os opcodes/caminhos e validar o fluxo gráfico de ponta a ponta. |
+| **GIF / GS** | **Parcial, sem percentual** | Backend OpenGL 3.3, worker GPU e testes sintéticos de contrato GPU e de pacotes GIF. | Comprovar equivalência visual completa, transparência, profundidade e frames em todas as fases. |
+| **Jogo completo** | **Em validação** | Menu, seleção de personagem, HUB, entrada em uma fase de Toy Story e gameplay inicial registrados localmente. | Validar todas as fases, personagens, ações, saves, áudio, vídeo, colisão, carregamento e instalação reproduzível. |
+
+Os totais de geração foram conferidos no ambiente local. `src/generated-*` e `native/original/vu/generated/` não são versionados; por isso, um clone limpo ainda não reproduz o runtime AOT completo, conforme [docs/BUILDING.md](docs/BUILDING.md). O marco de **100% do EE** acima é de exportação/geração, não de fidelidade nem de conclusão do port.
+
+### Evolução de FPS registrada
+
+| Data | Cenário | Resultado | Comparação ou limite |
+| --- | --- | ---: | --- |
+| 06/11/2026 | HUB, frame 10500 | **21,69 FPS** após otimização do GS | 17,06 FPS antes, na mesma cena |
+| 06/11/2026 | HUB, perfil de 10.500 frames | **18,3–27,2 FPS** no gameplay | Menu entre 59 e 60 FPS |
+| 23/11/2026 | `ToyStory_Bedroom`, frames 8400–10500 | **59,98 FPS** (59,82–60,14) | 8 amostras; VIF1 36,9%, VU1 26,2% e GIF/GS 9,4% de ocupação |
+
+A medição de 23/11 está documentada no histórico do projeto, mas sua captura bruta de FPS não foi localizada no ambiente atual. Ela não foi repetida agora e não deve ser tratada como um benchmark de todas as fases; os cenários de 06/11 e 23/11 também não formam uma comparação A/B. O port só poderá ser declarado **100% recompilado e validado** quando todos os itens da tabela estiverem concluídos e o fluxo completo do jogo for testado.
+
 ## O que já foi corrigido ou funciona nos testes locais
 
 - **Menus e início do jogo:** menu, seleção de personagem, HUB e entrada em uma fase de Toy Story foram registrados em sessões locais.
