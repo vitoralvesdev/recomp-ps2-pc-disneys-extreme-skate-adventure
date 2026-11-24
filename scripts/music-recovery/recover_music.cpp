@@ -25,7 +25,7 @@ void w16(std::ostream& f,uint16_t v){f.put(char(v));f.put(char(v>>8));}
 void w32(std::ostream& f,uint32_t v){w16(f,uint16_t(v));w16(f,uint16_t(v>>16));}
 int wmain(int argc,wchar_t** argv){try{
  if(argc<3)throw std::runtime_error("Usage: recover_music project output [track]");
- fs::path p=argv[1],out=argv[2];fs::create_directories(out);const std::wstring wanted=argc>3?argv[3]:L"";
+ fs::path p=argv[1],out=argv[2];fs::create_directories(out);const fs::path pcmDir=out/"pcm";fs::create_directories(pcmDir);const std::wstring wanted=argc>3?argv[3]:L"";
  const wchar_t* gameDirectory=_wgetenv(L"DISNEY_GAME_DIR");
  const fs::path game=gameDirectory&&*gameDirectory?fs::path(gameDirectory):p/L"original/extracted";
  auto hed=read(game/L"MUSIC/MUSIC.HED");std::ifstream wad(game/L"MUSIC/MUSIC.WAD",std::ios::binary);
@@ -46,7 +46,7 @@ int wmain(int argc,wchar_t** argv){try{
    pos+=span*2;
   }
   pcm.resize(static_cast<size_t>(size)/16*28);
-  const auto path=out/(name+".wav");std::ofstream f(path,std::ios::binary);uint32_t dataBytes=static_cast<uint32_t>(pcm.size()*2);
+  const auto path=pcmDir/(name+".wav");std::ofstream f(path,std::ios::binary);uint32_t dataBytes=static_cast<uint32_t>(pcm.size()*2);
   f.write("RIFF",4);w32(f,36+dataBytes);f.write("WAVEfmt ",8);w32(f,16);w16(f,1);w16(f,2);w32(f,48000);w32(f,192000);w16(f,4);w16(f,16);f.write("data",4);w32(f,dataBytes);f.write(reinterpret_cast<const char*>(pcm.data()),dataBytes);if(!f)throw std::runtime_error("Cannot write PCM");
   std::cout<<name<<"\t"<<offset<<"\t"<<size<<"\t"<<pcm.size()/2<<"\t48000\t"<<channels[0].clipping+channels[1].clipping<<"\n";
  }

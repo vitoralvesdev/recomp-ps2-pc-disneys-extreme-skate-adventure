@@ -78,6 +78,21 @@ void writeFilledFile(const std::filesystem::path& path, size_t size, char seed =
     writeBytes(path, data.data(), data.size());
 }
 
+void writePeFile(const std::filesystem::path& path, uint8_t marker = 0) {
+    std::vector<uint8_t> data(512, 0);
+    data[100] = marker;
+    data[0] = 'M';
+    data[1] = 'Z';
+    data[0x3c] = 64;
+    data[64] = 'P';
+    data[65] = 'E';
+    data[68] = 0x64;
+    data[69] = 0x86;
+    data[88] = 0x0b;
+    data[89] = 0x02;
+    writeBytes(path, data.data(), data.size());
+}
+
 void testJson() {
     const char* sample = R"json({
         "tag_name": "v0.4.0",
@@ -200,10 +215,10 @@ void testPackage() {
     layout.stateDir = layout.logsDir / L"launcher";
     layout.portable = true;
 
-    writeFilledFile(layout.runtimeExe(), 9 * 1024 * 1024);
+    writePeFile(layout.runtimeExe());
     for (const wchar_t* dll : {L"avcodec-61.dll", L"avformat-61.dll", L"avutil-59.dll",
                                L"swresample-5.dll", L"swscale-8.dll"}) {
-        writeFilledFile(layout.runtimeDir / dll, 16);
+        writePeFile(layout.runtimeDir / dll);
     }
     std::vector<char> elf(2 * 1024 * 1024, 0);
     elf[0] = 0x7f;
@@ -212,7 +227,10 @@ void testPackage() {
     elf[3] = 'F';
     elf[4] = 1;
     elf[5] = 1;
+    elf[6] = 1;
+    elf[16] = 2;
     elf[18] = 8;
+    elf[24] = 1;
     writeBytes(layout.gameElf(), elf.data(), elf.size());
     writeFilledFile(layout.gameDir / L"SKATE4.HED", 4096);
     writeFilledFile(layout.gameDir / L"SKATE4.WAD", 11 * 1024 * 1024);
@@ -226,7 +244,11 @@ void testPackage() {
     writeFilledFile(layout.assetsDir / L"native" / L"audio" / L"files" / L"test.wav", 128);
     writeFilledFile(layout.assetsDir / L"native" / L"spawn.txt", 8);
 
-    ds::PackageReport report = ds::inspectPackage(layout);
+    std::wstring error;
+    std::wstring bootHash;
+    CHECK_MSG(ds::sha256File(layout.gameElf(), bootHash, error), error);
+    CHECK_MSG(ds::writePackageManifest(layout, bootHash, error), error);
+    ds::PackageReport report = ds::inspectPackage(layout, bootHash);
     for (const ds::CheckItem& item : report.items) {
         if (item.status == ds::CheckStatus::Error) {
             std::wcerr << L"  pacote: " << item.label << L" -> " << item.detail << L"\n";
@@ -234,24 +256,61 @@ void testPackage() {
     }
     CHECK_MSG(report.ready, L"erros: " + std::to_wstring(report.errorCount));
     CHECK(report.errorCount == 0);
+    CHECK(report.find(L"Manifesto SHA-256") != nullptr);
 
     std::error_code ec;
     CHECK(ds::runtimeFilesReady(layout));
     std::filesystem::remove(layout.assetsDir / L"native" / L"audio" / L"files" / L"test.wav", ec);
-    report = ds::inspectPackage(layout);
+    report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
     CHECK(report.errorCount >= 1);
     writeFilledFile(layout.assetsDir / L"native" / L"audio" / L"files" / L"test.wav", 128);
     std::filesystem::remove(layout.assetsDir / L"native" / L"audio" / L"catalog.tsv", ec);
-    report = ds::inspectPackage(layout);
+    report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
     CHECK(report.errorCount >= 1);
+    writeBytes(layout.assetsDir / L"native" / L"audio" / L"catalog.tsv", catalog.data(),
+               catalog.size());
 
     std::filesystem::remove(layout.runtimeDir / L"avcodec-61.dll", ec);
-    report = ds::inspectPackage(layout);
+    report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
     CHECK(report.errorCount >= 1);
     CHECK(!ds::runtimeFilesReady(layout));
+    writePeFile(layout.runtimeDir / L"avcodec-61.dll");
+
+    writePeFile(layout.runtimeDir / L"avutil-59.dll", 1);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(!report.ready);
+    CHECK(report.find(L"Manifesto SHA-256") != nullptr);
+    writePeFile(layout.runtimeDir / L"avutil-59.dll");
+
+    const std::filesystem::path unlisted = layout.runtimeDir / L"unlisted.bin";
+    writeFilledFile(unlisted, 4);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(!report.ready);
+    std::filesystem::remove(unlisted, ec);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(report.ready);
+
+    writeBytes(layout.gameDir / L"SKATE4.HED", "", 0);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(!report.ready);
+    writeFilledFile(layout.gameDir / L"SKATE4.HED", 4096);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(report.ready);
+
+    std::filesystem::remove(layout.stateDir / L"package-manifest.sha256", ec);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(!report.ready);
+    CHECK_MSG(ds::writePackageManifest(layout, bootHash, error), error);
+    CHECK(ds::inspectPackage(layout, bootHash).ready);
+
+    writeBytes(layout.stateDir / L"package-manifest.sha256", "", 0);
+    report = ds::inspectPackage(layout, bootHash);
+    CHECK(!report.ready);
+    CHECK_MSG(ds::writePackageManifest(layout, bootHash, error), error);
+    CHECK(ds::inspectPackage(layout, bootHash).ready);
 }
 
 void testInstallProgress() {

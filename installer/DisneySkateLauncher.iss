@@ -1,7 +1,7 @@
 ; Inno Setup script for the native launcher package.
-; It installs the launcher and the compiled runtime only. The ISO, extracted game
-; data, generated assets and saves are NEVER packaged here: the launcher creates
-; them locally from the user's own disc.
+; It installs the launcher, compiled runtime and first-party preparation sources.
+; The ISO, extracted game data, derived audio, generated assets, saves and
+; third-party tool binaries are NEVER packaged here.
 ;
 ; Build: scripts\Empacotar-Instalador.ps1
 
@@ -66,6 +66,23 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\launcher.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\controles.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\DISTRIBUTION.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\teste-nativo.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\scripts\Build.Common.psm1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\Preparar-Dados-Nativos.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\Instalar-Audios-Originais.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\Recuperar-Trilha-ISO.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\scripts\music-recovery\CMakeLists.txt"; DestDir: "{app}\scripts\music-recovery"; Flags: ignoreversion
+Source: "..\scripts\music-recovery\install_music.py"; DestDir: "{app}\scripts\music-recovery"; Flags: ignoreversion
+Source: "..\scripts\music-recovery\recover_music.cpp"; DestDir: "{app}\scripts\music-recovery"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\Col8Converter.csproj"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\Program.cs"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\ColFile.cs"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\ColFace.cs"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\ColObject.cs"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\ColScene.cs"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\NuGet.Config"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\README.md"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
+Source: "..\tools-src\col8-converter\UPSTREAM-LICENSE.md"; DestDir: "{app}\tools-src\col8-converter"; Flags: ignoreversion
 
 #ifndef LAUNCHER_TEST_INSTALL
 [Icons]

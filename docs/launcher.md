@@ -9,8 +9,9 @@ Versão atual: **0.3.0**.
 ## O que ele faz
 
 1. Identifica uma imagem de disco do PlayStation 2.
-2. Valida a edição NTSC-U esperada: `SYSTEM.CNF`, `BOOT2 = cdrom0:\SLUS_206.07;1`,
-   `VMODE = NTSC`, ELF MIPS little-endian e os arquivos `SKATE4.HED`, `SKATE4.WAD` e módulos IOP.
+2. Valida a edição NTSC-U esperada: `SYSTEM.CNF` com `BOOT2` exatamente igual a
+   `cdrom0:\SLUS_206.07;1`, `VMODE = NTSC`, ELF MIPS little-endian com o SHA-256 de referência
+   e arquivos `SKATE4.HED`, `SKATE4.WAD` e módulos IOP não vazios.
 3. Lê a ISO9660 diretamente (imagens de 2048 bytes por setor e variantes cruas de 2352/2336)
    e extrai os arquivos para a pasta de dados. Não é necessário instalar o 7-Zip.
 4. Prepara os assets nativos e o runtime. Em um checkout de desenvolvimento, delega aos scripts
@@ -19,9 +20,9 @@ Versão atual: **0.3.0**.
 6. Abre o runtime, configura o renderer, a escala, o V-Sync, a pasta de saves e os diagnósticos.
 7. Mantém o launcher aberto enquanto o jogo roda e volta ao estado pronto quando o jogo fecha.
 
-A extração é incremental: arquivos já presentes com o tamanho esperado não são copiados de novo.
-Uma atualização do port pode substituir o launcher e o runtime sem pedir a ISO novamente, desde
-que a pasta de dados do jogo continue válida.
+A extração é incremental: arquivos já presentes só são ignorados quando tamanho e SHA-256
+coincidem com a ISO. Uma atualização do port pode substituir o launcher e o runtime sem pedir a
+ISO novamente, desde que a pasta de dados do jogo continue válida.
 
 ## Primeira execução
 
@@ -57,30 +58,64 @@ atualizações. O arquivo de configuração é `analysis\launcher\config.ini` no
 
 O launcher recusa:
 
-- imagens sem ISO9660 reconhecível;
-- imagens cujo `SYSTEM.CNF` não aponta para `SLUS_206.07`;
+- imagens sem ISO9660 reconhecível ou com `SYSTEM.CNF` vazio;
+- imagens cujo `BOOT2` não seja exatamente `cdrom0:\SLUS_206.07;1`, ou que declarem `BOOT2`/`VMODE` duplicado;
 - imagens PAL ou de outra região (`VMODE` diferente de `NTSC`);
-- executáveis que não sejam ELF MIPS de 32 bits;
-- imagens sem os arquivos de dados ou módulos IOP obrigatórios.
+- executáveis vazios, truncados, que não sejam ELF MIPS de 32 bits ou cujo SHA-256 não corresponda à revisão esperada;
+- imagens sem os arquivos de dados ou módulos IOP obrigatórios, ou com esses arquivos vazios/truncados.
 
-O SHA-256 de `SLUS_206.07` é calculado e registrado em
+O SHA-256 de `SLUS_206.07` é comparado com a referência
+`2fe6ce3a08aade170be27ea221137c96aa15083a408d61856f605f1a40f321fc` e registrado em
 `analysis\launcher\install-state.ini`. O hash da ISO inteira não é calculado porque a imagem tem
 vários gigabytes e não é necessária para identificar a revisão.
 
+### Manifesto do pacote
+
+Ao final da instalação, o launcher grava atomicamente `package-manifest.sha256` na pasta de
+estado (`analysis\launcher` no modo portátil ou `%LOCALAPPDATA%\HighSky\DisneySkate\launcher`
+no modo instalado). Cada linha registra SHA-256, tamanho e caminho lógico de um arquivo em
+`runtime/`, `game/` ou `assets/`; saves não entram no manifesto.
+
+Antes de liberar **Jogar**, o launcher confere cabeçalho, caminhos seguros, entradas duplicadas,
+arquivos ausentes ou extras, tamanhos e hashes. Arquivo vazio, manifesto ausente ou qualquer
+divergência mantém o pacote incompleto. Uma nova instalação regenera o manifesto.
+
 ## Preparação de assets e runtime
 
-A instalação de um jogador não deve exigir Visual Studio. O launcher foi desenhado para receber
-um pacote de runtime já compilado e para gerar os dados derivados do disco localmente. No estado
-atual do projeto, a geração dos assets ainda usa o pipeline de desenvolvimento
-(`scripts\Preparar-Dados-Nativos.ps1`) e o runtime AOT completo ainda não é reproduzível em um
-clone limpo. Quando esses componentes não estão presentes, o launcher:
+O launcher recebe um runtime já compilado, mas a geração dos assets ainda usa o pipeline de
+desenvolvimento (`scripts\Preparar-Dados-Nativos.ps1`, `scripts\Instalar-Audios-Originais.py` e
+`scripts\Recuperar-Trilha-ISO.ps1`).
+O instalador inclui os scripts e o código-fonte próprio desse pipeline; não inclui ISO, dados do
+jogo, áudio derivado, assets gerados, saves nem binários de terceiros. Não há configuração de
+pacotes de áudio: efeitos, vozes e músicas são convertidos dos dados da própria ISO selecionada.
+Quando os assets e o áudio ainda não estão prontos, o launcher executa o preflight **antes da
+extração**:
 
 - procura os scripts em `scripts\` (ou em `source_root`, definido no `config.ini`);
-- executa a preparação com PowerShell, mostrando a saída real na tela de progresso;
-- interrompe com uma mensagem clara e mantém os arquivos já extraídos para uma nova tentativa.
+- verifica Python 3.9–3.12, SDK .NET 9, Neversoft Multitool CLI v1.3.4, CMake 3.21+ e
+  Visual Studio 2022 com ferramentas C++;
+- informa o arquivo ou dependência ausente e interrompe sem começar a extrair.
 
-Isso permite evoluir o launcher agora e substituir os scripts por downloads/componentes
-versionados depois, sem mudar a interface.
+No modo instalado, uma cópia autorizada do Neversoft Multitool deve ficar em
+`%LOCALAPPDATA%\HighSky\DisneySkate\tools\neversoft-multitool-v1.3.4\cli` quando não há
+`tools\` no checkout fonte. Os intermediários do conversor .NET e as compilações de música
+ficam na pasta de dados gravável do usuário, não em `Arquivos de Programas`.
+
+A validação dos dados de áudio extraídos pode ser executada sem criar ou substituir assets:
+
+```powershell
+python scripts\Instalar-Audios-Originais.py . --game-dir original\extracted --validate-only
+```
+
+O modo `--validate-only` confere `STREAMS`/`MUSIC`, os intervalos dos índices e os VAGs já
+preparados em `assets\source\wad`. Se os assets e o catálogo de áudio já estiverem completos, o
+preflight e a conversão são ignorados. Um checkout completo continua necessário para operações de
+runtime não cobertas pelo pacote pré-compilado.
+
+Em 24/11/2026, o fluxo foi executado em uma pasta isolada, sem substituir os assets do projeto:
+393 efeitos VAG, 855 streams e 37 músicas resultaram em 1.285 entradas únicas, sem erros de
+conversão, arquivos ausentes ou músicas pendentes. Uma segunda execução da instalação musical
+apenas verificou os hashes das 37 faixas já presentes.
 
 ## Configurações
 
@@ -96,7 +131,7 @@ O runtime continua com resolução de janela livremente redimensionável; a esca
 resolução interna do GS. As opções valem na próxima vez que o jogo for aberto.
 
 O arquivo `config.ini` também aceita `source_root`, usado para apontar a um checkout do projeto
-quando o launcher está instalado separadamente.
+quando o launcher está instalado separadamente. O caminho é salvo em UTF-8.
 
 ## Linha de comando
 
@@ -118,6 +153,11 @@ A tela **Atualizações** consulta `releases/latest` do repositório oficial no 
 com WinHTTP. Se houver uma versão mais nova, mostra as notas e permite abrir a página da versão ou
 baixar um instalador `.exe` publicado como asset. O download é salvo em `%TEMP%` e só é executado
 depois de uma confirmação; o launcher se fecha antes para permitir a substituição dos arquivos.
+
+Ao clicar em **Verificar novamente**, o launcher abre um modal com animação de carregamento. Se a
+versão instalada já for a mais recente ou não houver releases publicados, o modal muda para
+**Nenhuma atualização encontrada**, com o botão **Entendi**. A checagem automática ao abrir não abre
+esse modal.
 
 Não há envio de dados do jogo, da ISO ou de telemetria. A consulta é somente de metadados
 públicos.
@@ -167,7 +207,7 @@ ctest --test-dir build/launcher -C Release --output-on-failure
 ```
 
 Os testes cobrem JSON, comparação de versões, configuração, detecção de layout, verificação de
-pacote, processos, leitura de ISO e extração. Para executar a integração com uma ISO local:
+pacote e manifesto, processos, leitura de ISO e extração. Para executar a integração com uma ISO local:
 
 ```powershell
 $env:DISNEY_TEST_ISO = "C:\caminho\para\Disney's Extreme Skate Adventure (USA).iso"
@@ -175,8 +215,8 @@ $env:DISNEY_TEST_EXTRACTED = "C:\caminho\para\original\extracted"
 build\launcher\launcher-tests\Release\DisneyLauncherTests.exe
 ```
 
-O teste de integração confere assinatura da ISO, serial, ELF, hash do executável e compara os
-arquivos extraídos com os dados locais.
+O teste de integração confere assinatura da ISO, serial, ELF, hash de referência do executável e
+compara os arquivos extraídos com os dados locais.
 
 ## Limitações atuais
 

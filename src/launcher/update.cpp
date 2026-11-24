@@ -18,6 +18,18 @@ constexpr wchar_t kApiPath[] =
     L"/releases/latest";
 constexpr wchar_t kUserAgent[] = L"DisneySkateLauncher/" DISNEY_LAUNCHER_VERSION_STRING
     L" (Windows)";
+constexpr wchar_t kDownloadHost[] = L"github.com";
+constexpr std::wstring_view kReleasePathPrefix =
+    L"/" DISNEY_LAUNCHER_REPOSITORY_OWNER L"/" DISNEY_LAUNCHER_REPOSITORY_NAME
+    L"/releases/download/";
+constexpr std::wstring_view kInstallerName =
+    L"DisneySkateSetup-" DISNEY_LAUNCHER_VERSION_STRING L".exe";
+constexpr std::wstring_view kInstallerSha256 =
+    L"67b83ccd5a4b663830c045f82ac984755345ab063ef9321eafeeb411976fb2c5";
+constexpr uint64_t kInstallerSize = 29762285ULL;
+constexpr std::wstring_view kRedirectHosts[] = {
+    L"objects.githubusercontent.com", L"github-releases.githubusercontent.com",
+    L"release-assets.githubusercontent.com"};
 
 struct InternetHandle {
     HINTERNET handle = nullptr;
@@ -66,6 +78,39 @@ bool readResponse(HINTERNET request, std::string& body, std::wstring& error) {
         }
     }
     return true;
+}
+
+bool configureSecureSession(HINTERNET session, DWORD timeout, std::wstring& error) {
+    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
+    if (!WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols,
+                          sizeof(protocols)) ||
+        !WinHttpSetTimeouts(session, 6000, 6000, 6000, timeout)) {
+        error = L"Não foi possível configurar a conexão segura: " +
+                windowsErrorMessage(GetLastError());
+        return false;
+    }
+    DWORD redirects = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+    if (!WinHttpSetOption(session, WINHTTP_OPTION_REDIRECT_POLICY, &redirects,
+                          sizeof(redirects))) {
+        error = L"Não foi possível bloquear redirecionamentos automáticos: " +
+                windowsErrorMessage(GetLastError());
+        return false;
+    }
+    return true;
+}
+
+bool parseContentLength(const std::wstring& text, uint64_t& value) {
+    if (text.empty()) return false;
+    for (const wchar_t ch : text) {
+        if (ch < L'0' || ch > L'9') return false;
+    }
+    try {
+        size_t consumed = 0;
+        value = std::stoull(text, &consumed, 10);
+        return consumed == text.size();
+    } catch (...) {
+        return false;
+    }
 }
 
 bool parseRelease(const Json& root, ReleaseInfo& release, std::wstring& error) {
@@ -154,28 +199,87 @@ int compareVersionImpl(std::wstring_view leftText, std::wstring_view rightText) 
     return 0;
 }
 
+bool isAllowedRedirectHost(std::wstring_view host) {
+    for (const std::wstring_view candidate : kRedirectHosts) {
+        if (iequals(host, candidate)) return true;
+    }
+    return false;
+}
+
+bool isReleaseTagCharacter(wchar_t ch) {
+    return (ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z') ||
+           (ch >= L'0' && ch <= L'9') || ch == L'.' || ch == L'-' || ch == L'_';
+}
+
 bool parseUrl(const std::wstring& url, URL_COMPONENTS& components, std::wstring& host,
-              std::wstring& path, bool& secure, std::wstring& error) {
+              std::wstring& path, bool allowRedirect, std::wstring& error) {
     std::memset(&components, 0, sizeof(components));
     components.dwStructSize = sizeof(components);
     components.dwHostNameLength = static_cast<DWORD>(-1);
     components.dwUrlPathLength = static_cast<DWORD>(-1);
     components.dwExtraInfoLength = static_cast<DWORD>(-1);
+    components.dwUserNameLength = static_cast<DWORD>(-1);
+    components.dwPasswordLength = static_cast<DWORD>(-1);
     if (!WinHttpCrackUrl(url.c_str(), static_cast<DWORD>(url.size()), 0, &components)) {
         error = L"Endereço de download inválido.";
         return false;
     }
-    if (components.nScheme != INTERNET_SCHEME_HTTP &&
-        components.nScheme != INTERNET_SCHEME_HTTPS) {
-        error = L"Somente downloads HTTP/HTTPS são aceitos.";
+    if (components.nScheme != INTERNET_SCHEME_HTTPS) {
+        error = L"Somente downloads HTTPS são aceitos.";
+        return false;
+    }
+    if (components.nPort != INTERNET_DEFAULT_HTTPS_PORT ||
+        components.dwUserNameLength > 0 || components.dwPasswordLength > 0) {
+        error = L"Porta ou credenciais não são permitidas no download.";
         return false;
     }
     host.assign(components.lpszHostName, components.dwHostNameLength);
+    if (!allowRedirect && !iequals(host, kDownloadHost)) {
+        error = L"O download só é permitido no host oficial do GitHub.";
+        return false;
+    }
+    if (allowRedirect && !isAllowedRedirectHost(host)) {
+        error = L"O redirecionamento aponta para um host não autorizado.";
+        return false;
+    }
     path.assign(components.lpszUrlPath, components.dwUrlPathLength);
     if (components.lpszExtraInfo && components.dwExtraInfoLength) {
-        path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
+        std::wstring extra(components.lpszExtraInfo, components.dwExtraInfoLength);
+        if (extra.find(L'#') != std::wstring::npos) {
+            error = L"Fragmentos não são permitidos no endereço de download.";
+            return false;
+        }
+        if (!allowRedirect) {
+            error = L"Parâmetros não são permitidos no endereço do instalador.";
+            return false;
+        }
+        path += extra;
     }
-    secure = components.nScheme == INTERNET_SCHEME_HTTPS;
+    if (allowRedirect) {
+        if (path.empty() || path.front() != L'/') {
+            error = L"Redirecionamento de download inválido.";
+            return false;
+        }
+        return true;
+    }
+    if (path.size() <= kReleasePathPrefix.size() + kInstallerName.size() + 1 ||
+        path.compare(0, kReleasePathPrefix.size(), kReleasePathPrefix) != 0) {
+        error = L"O instalador não pertence ao repositório oficial.";
+        return false;
+    }
+    const size_t assetOffset = path.size() - kInstallerName.size();
+    if (path[assetOffset - 1] != L'/' ||
+        path.compare(assetOffset, kInstallerName.size(), kInstallerName) != 0) {
+        error = L"O nome do instalador não é o asset oficial esperado.";
+        return false;
+    }
+    const std::wstring_view tag =
+        std::wstring_view(path).substr(kReleasePathPrefix.size(),
+                                       assetOffset - kReleasePathPrefix.size() - 1);
+    if (tag.empty() || !std::all_of(tag.begin(), tag.end(), isReleaseTagCharacter)) {
+        error = L"A tag do release do instalador é inválida.";
+        return false;
+    }
     return true;
 }
 
@@ -207,7 +311,7 @@ bool fetchLatestRelease(ReleaseInfo& release, std::wstring& error) {
         error = L"Não foi possível iniciar o WinHTTP: " + windowsErrorMessage(GetLastError());
         return false;
     }
-    WinHttpSetTimeouts(session.handle, 6000, 6000, 6000, 15000);
+    if (!configureSecureSession(session.handle, 15000, error)) return false;
     InternetHandle connection;
     connection.handle = WinHttpConnect(session.handle, kApiHost, INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!connection.handle) {
@@ -261,120 +365,154 @@ bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
                           const std::function<void(uint64_t, uint64_t)>& onProgress,
                           std::wstring& error) {
     error.clear();
-    URL_COMPONENTS components{};
-    std::wstring host;
-    std::wstring path;
-    bool secure = false;
-    if (!parseUrl(url, components, host, path, secure, error)) return false;
+    std::wstring currentUrl = url;
+    for (DWORD redirectCount = 0;; ++redirectCount) {
+        URL_COMPONENTS components{};
+        std::wstring host;
+        std::wstring path;
+        if (!parseUrl(currentUrl, components, host, path, redirectCount != 0, error)) {
+            return false;
+        }
 
-    InternetHandle session;
-    session.handle = WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                 WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!session.handle) {
-        error = L"Não foi possível iniciar o download.";
-        return false;
-    }
-    WinHttpSetTimeouts(session.handle, 6000, 6000, 6000, 30000);
-    DWORD redirects = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-    WinHttpSetOption(session.handle, WINHTTP_OPTION_REDIRECT_POLICY, &redirects,
-                     sizeof(redirects));
-    InternetHandle connection;
-    connection.handle = WinHttpConnect(session.handle, host.c_str(),
-                                       static_cast<INTERNET_PORT>(components.nPort), 0);
-    if (!connection.handle) {
-        error = L"Não foi possível conectar ao servidor de download.";
-        return false;
-    }
-    InternetHandle request;
-    request.handle =
-        WinHttpOpenRequest(connection.handle, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                           WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
-    if (!request.handle) {
-        error = L"Não foi possível criar o pedido de download.";
-        return false;
-    }
-    if (!WinHttpSendRequest(request.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(request.handle, nullptr)) {
-        error = L"Falha no download: " + windowsErrorMessage(GetLastError());
-        return false;
-    }
-    DWORD status = 0;
-    DWORD statusSize = sizeof(status);
-    WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
-                        WINHTTP_NO_HEADER_INDEX);
-    if (status != 200) {
-        error = L"O servidor de download respondeu com HTTP " + std::to_wstring(status) + L".";
-        return false;
-    }
-    const std::wstring lengthHeader = queryStringHeader(request.handle, WINHTTP_QUERY_CONTENT_LENGTH);
-    uint64_t total = 0;
-    if (!lengthHeader.empty()) {
-        try {
-            total = std::stoull(lengthHeader);
-        } catch (...) {
-            total = 0;
+        InternetHandle session;
+        session.handle = WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!session.handle) {
+            error = L"Não foi possível iniciar o download.";
+            return false;
         }
-    }
+        if (!configureSecureSession(session.handle, 30000, error)) return false;
+        InternetHandle connection;
+        connection.handle = WinHttpConnect(session.handle, host.c_str(),
+                                           static_cast<INTERNET_PORT>(components.nPort), 0);
+        if (!connection.handle) {
+            error = L"Não foi possível conectar ao servidor de download.";
+            return false;
+        }
+        InternetHandle request;
+        request.handle =
+            WinHttpOpenRequest(connection.handle, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                               WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        if (!request.handle) {
+            error = L"Não foi possível criar o pedido de download.";
+            return false;
+        }
+        if (!WinHttpSendRequest(request.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+            !WinHttpReceiveResponse(request.handle, nullptr)) {
+            error = L"Falha no download: " + windowsErrorMessage(GetLastError());
+            return false;
+        }
+        DWORD status = 0;
+        DWORD statusSize = sizeof(status);
+        WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize,
+                            WINHTTP_NO_HEADER_INDEX);
+        if (status >= 300 && status < 400 && status != 304) {
+            if (redirectCount >= 3) {
+                error = L"O download excedeu o limite de redirecionamentos.";
+                return false;
+            }
+            currentUrl = queryStringHeader(request.handle, WINHTTP_QUERY_LOCATION);
+            if (currentUrl.empty()) {
+                error = L"O servidor de download não informou o redirecionamento.";
+                return false;
+            }
+            continue;
+        }
+        if (status != 200) {
+            error = L"O servidor de download respondeu com HTTP " + std::to_wstring(status) + L".";
+            return false;
+        }
+        const std::wstring lengthHeader =
+            queryStringHeader(request.handle, WINHTTP_QUERY_CONTENT_LENGTH);
+        if (!lengthHeader.empty()) {
+            uint64_t advertisedSize = 0;
+            if (!parseContentLength(lengthHeader, advertisedSize) ||
+                advertisedSize != kInstallerSize) {
+                error = L"O tamanho informado pelo servidor não corresponde ao instalador esperado.";
+                return false;
+            }
+        }
 
-    std::error_code ec;
-    if (!destination.parent_path().empty()) fs::create_directories(destination.parent_path(), ec);
-    fs::path part = destination;
-    part += L".part";
-    HANDLE file = CreateFileW(part.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        error = L"Não foi possível criar " + part.wstring() + L": " +
-                windowsErrorMessage(GetLastError());
-        return false;
-    }
-    uint64_t completed = 0;
-    bool success = true;
-    std::vector<uint8_t> buffer(256 * 1024);
-    for (;;) {
-        if (cancel.cancelled()) {
-            error = L"Download cancelado.";
-            success = false;
-            break;
+        std::error_code ec;
+        if (!destination.parent_path().empty()) fs::create_directories(destination.parent_path(), ec);
+        fs::path part = destination;
+        part += L".part";
+        HANDLE file = CreateFileW(part.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        if (file == INVALID_HANDLE_VALUE) {
+            error = L"Não foi possível criar " + part.wstring() + L": " +
+                    windowsErrorMessage(GetLastError());
+            return false;
         }
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request.handle, &available)) {
-            error = L"Falha ao receber o download: " + windowsErrorMessage(GetLastError());
-            success = false;
-            break;
+        uint64_t completed = 0;
+        bool success = true;
+        std::vector<uint8_t> buffer(256 * 1024);
+        for (;;) {
+            if (cancel.cancelled()) {
+                error = L"Download cancelado.";
+                success = false;
+                break;
+            }
+            DWORD available = 0;
+            if (!WinHttpQueryDataAvailable(request.handle, &available)) {
+                error = L"Falha ao receber o download: " + windowsErrorMessage(GetLastError());
+                success = false;
+                break;
+            }
+            if (available == 0) break;
+            DWORD read = 0;
+            const DWORD chunk = std::min<DWORD>(available, static_cast<DWORD>(buffer.size()));
+            if (!WinHttpReadData(request.handle, buffer.data(), chunk, &read)) {
+                error = L"Falha ao ler o download: " + windowsErrorMessage(GetLastError());
+                success = false;
+                break;
+            }
+            if (read == 0 || read > kInstallerSize - completed) {
+                error = L"O instalador recebido excede ou não corresponde ao tamanho esperado.";
+                success = false;
+                break;
+            }
+            DWORD written = 0;
+            if (!WriteFile(file, buffer.data(), read, &written, nullptr) || written != read) {
+                error = L"Falha ao gravar o download: " + windowsErrorMessage(GetLastError());
+                success = false;
+                break;
+            }
+            completed += read;
+            if (onProgress) onProgress(completed, kInstallerSize);
         }
-        if (available == 0) break;
-        DWORD read = 0;
-        const DWORD chunk = std::min<DWORD>(available, static_cast<DWORD>(buffer.size()));
-        if (!WinHttpReadData(request.handle, buffer.data(), chunk, &read)) {
-            error = L"Falha ao ler o download: " + windowsErrorMessage(GetLastError());
-            success = false;
-            break;
+        CloseHandle(file);
+        if (!success) {
+            DeleteFileW(part.c_str());
+            return false;
         }
-        DWORD written = 0;
-        if (!WriteFile(file, buffer.data(), read, &written, nullptr) || written != read) {
-            error = L"Falha ao gravar o download: " + windowsErrorMessage(GetLastError());
-            success = false;
-            break;
+        if (completed != kInstallerSize) {
+            error = L"O instalador recebido não corresponde ao tamanho esperado.";
+            DeleteFileW(part.c_str());
+            return false;
         }
-        completed += read;
-        if (onProgress) onProgress(completed, total);
+        std::wstring digest;
+        if (!sha256File(part, digest, error)) {
+            DeleteFileW(part.c_str());
+            return false;
+        }
+        if (!iequals(digest, kInstallerSha256)) {
+            error = L"O SHA-256 do instalador não corresponde ao binário aprovado.";
+            DeleteFileW(part.c_str());
+            return false;
+        }
+        if (!MoveFileExW(part.c_str(), destination.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            error = L"Não foi possível concluir o download: " +
+                    windowsErrorMessage(GetLastError());
+            DeleteFileW(part.c_str());
+            return false;
+        }
+        if (onProgress) onProgress(kInstallerSize, kInstallerSize);
+        return true;
     }
-    CloseHandle(file);
-    if (!success) {
-        DeleteFileW(part.c_str());
-        return false;
-    }
-    if (!MoveFileExW(part.c_str(), destination.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        error = L"Não foi possível concluir o download: " +
-                windowsErrorMessage(GetLastError());
-        DeleteFileW(part.c_str());
-        return false;
-    }
-    if (onProgress) onProgress(completed, total ? total : completed);
-    return true;
 }
 
 } // namespace ds

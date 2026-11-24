@@ -355,7 +355,7 @@ int main(int argc, char *argv[])
 #endif
         std::cout.flush();
         std::cerr.flush();
-        std::_Exit(0);
+        std::_Exit(runtime.hadFatalError() ? 1 : 0);
     }
     catch (const std::exception &e)
     {

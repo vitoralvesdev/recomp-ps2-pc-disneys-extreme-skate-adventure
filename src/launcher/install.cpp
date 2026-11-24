@@ -3,10 +3,14 @@
 #include "log.h"
 #include "package.h"
 #include "child_process.h"
+#include "validate.h"
 #include "version.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <sstream>
 
@@ -56,11 +60,13 @@ bool runCommand(const std::wstring& command, const fs::path& sourceRoot,
     logInfo(L"Executando: " + command);
     int percent = percentStart;
     DWORD exitCode = 0;
+    std::wstring lastOutput;
     const bool ran = runProcess(
         command, sourceRoot,
         [&](std::string_view line) {
             const std::wstring wide = trim(toWideLenient(line));
             if (wide.empty()) return;
+            lastOutput = wide;
             logInfo(L"[script] " + wide);
             int reported = 0;
             std::wstring progressMessage;
@@ -80,8 +86,9 @@ bool runCommand(const std::wstring& command, const fs::path& sourceRoot,
         cancel, exitCode, error);
     if (!ran) return false;
     if (exitCode != 0) {
-        error = L"O comando terminou com código " + std::to_wstring(exitCode) +
-                L". Consulte logs\\preparation e launcher.log.";
+        error = L"O comando terminou com código " + std::to_wstring(exitCode) + L".";
+        if (!lastOutput.empty()) error += L"\n" + lastOutput;
+        error += L"\nConsulte logs\\preparation e launcher.log.";
         return false;
     }
     return true;
@@ -110,6 +117,15 @@ bool runPython(const fs::path& script, const std::vector<std::wstring>& argument
 
 bool isInputReady(const IsoEntry& entry) { return !entry.directory; }
 
+bool fileMatchesIso(IsoImage& image, const IsoEntry& entry, const fs::path& destination) {
+    if (!fileExists(destination) || fileSize(destination) != entry.size) return false;
+    std::wstring isoHash;
+    std::wstring destinationHash;
+    std::wstring error;
+    return sha256IsoEntry(image, entry, isoHash, error) &&
+           sha256File(destination, destinationHash, error) && iequals(isoHash, destinationHash);
+}
+
 std::vector<const IsoEntry*> filesToExtract(IsoImage& image, const Layout& layout,
                                             bool force, uint64_t& totalBytes) {
     std::vector<const IsoEntry*> files;
@@ -117,7 +133,7 @@ std::vector<const IsoEntry*> filesToExtract(IsoImage& image, const Layout& layou
     for (const IsoEntry& entry : image.entries()) {
         if (!isInputReady(entry)) continue;
         const fs::path destination = layout.gameDir / toWide(entry.path);
-        if (!force && fileExists(destination) && fileSize(destination) == entry.size) continue;
+        if (!force && fileMatchesIso(image, entry, destination)) continue;
         files.push_back(&entry);
         totalBytes += entry.size;
     }
@@ -137,7 +153,150 @@ bool requireSourceFiles(const fs::path& sourceRoot,
     }
     if (!missing.empty()) {
         error = L"Arquivos necessários ausentes no checkout fonte:\n" + missing +
-                L"\n\nDefina source_root em config.ini ou restaure os arquivos indicados.";
+                L"\n\nDefina source_root em config.ini para um checkout completo ou reinstale o "
+                L"launcher para restaurar os scripts de preparação incluídos.";
+        return false;
+    }
+    return true;
+}
+
+fs::path preparationToolsDirectory(const Layout& layout, const fs::path& sourceRoot) {
+    std::error_code ec;
+    if (fs::is_directory(sourceRoot / L"tools", ec)) return sourceRoot / L"tools";
+    return layout.dataRoot / L"tools";
+}
+
+std::wstring powerShellLiteral(const std::wstring& value) {
+    std::wstring result = L"'";
+    for (wchar_t ch : value) {
+        if (ch == L'\'') result += L"''";
+        else result += ch;
+    }
+    return result + L"'";
+}
+
+bool checkCommand(const std::wstring& command, const fs::path& sourceRoot,
+                  std::wstring& output, std::wstring& error) {
+    DWORD exitCode = 0;
+    if (!captureProcess(command, sourceRoot, output, exitCode, error, nullptr, 64 * 1024)) {
+        return false;
+    }
+    if (exitCode != 0) {
+        error = L"O comando terminou com código " + std::to_wstring(exitCode) +
+                (output.empty() ? L"." : L": " + trim(output));
+        return false;
+    }
+    return true;
+}
+
+bool checkAssetsDependencies(const fs::path& sourceRoot, const fs::path& toolsDirectory,
+                             std::wstring& error) {
+    std::wstring output;
+    std::wstring commandError;
+    if (!checkCommand(L"python --version", sourceRoot, output, commandError)) {
+        error = L"Python 3.9 a 3.12 não foi encontrado. Instale o Python 3 e marque a opção "
+                L"\"Add Python to PATH\". " + commandError;
+        return false;
+    }
+    const size_t versionStart = output.find(L"Python ");
+    int major = 0;
+    int minor = 0;
+    if (versionStart != std::wstring::npos) {
+        std::wstringstream version(output.substr(versionStart + 7));
+        wchar_t dot = 0;
+        version >> major >> dot >> minor;
+    }
+    if (major != 3 || minor < 9 || minor > 12) {
+        error = L"É necessário Python 3.9 a 3.12 para os conversores de áudio; encontrado: " +
+                trim(output) + L".";
+        return false;
+    }
+    if (!checkCommand(L"dotnet --list-sdks", sourceRoot, output, commandError) ||
+        output.find(L"9.") == std::wstring::npos) {
+        error = L"SDK .NET 9 não foi encontrado. Instale o SDK .NET 9 para compilar o conversor "
+                L"de colisões. " + commandError;
+        return false;
+    }
+    const fs::path toolRoot = toolsDirectory / L"neversoft-multitool-v1.3.4" / L"cli";
+    std::error_code ec;
+    bool toolFound = false;
+    if (fs::is_directory(toolRoot, ec)) {
+        for (fs::recursive_directory_iterator it(toolRoot, fs::directory_options::skip_permission_denied, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (it->is_regular_file(ec) && iequals(it->path().filename().wstring(),
+                                                    L"NeversoftMultitool.exe")) {
+                toolFound = true;
+                break;
+            }
+        }
+    }
+    if (!toolFound) {
+        error = L"Neversoft Multitool CLI v1.3.4 ausente em " + toolRoot.wstring() +
+                L". Coloque uma cópia autorizada da ferramenta nessa pasta; consulte "
+                L"docs/teste-nativo.md. O instalador não distribui binários de terceiros.";
+        return false;
+    }
+    const std::wstring cmakeScript =
+        L"$ErrorActionPreference='Stop'; Import-Module " +
+        powerShellLiteral((sourceRoot / L"scripts" / L"Build.Common.psm1").wstring()) +
+        L"; Get-DisneyCMake";
+    if (!checkCommand(quoteExecutableCommand(
+            L"powershell.exe", {L"-NoProfile", L"-ExecutionPolicy", L"Bypass", L"-Command",
+                                cmakeScript}), sourceRoot, output, commandError)) {
+        error = L"CMake 3.21+ não foi encontrado. Instale o CMake ou o componente CMake do "
+                L"Visual Studio. " + commandError;
+        return false;
+    }
+    const wchar_t* programFilesX86 = _wgetenv(L"ProgramFiles(x86)");
+    if (programFilesX86 && *programFilesX86) {
+        const fs::path vswhere = fs::path(programFilesX86) / L"Microsoft Visual Studio" /
+                                 L"Installer" / L"vswhere.exe";
+        if (fileExists(vswhere)) {
+            const std::wstring compilerCommand = quoteExecutableCommand(
+                vswhere, {L"-latest", L"-products", L"*", L"-requires",
+                          L"Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                          L"-property", L"installationPath"});
+            if (!checkCommand(compilerCommand, sourceRoot, output, commandError) ||
+                trim(output).empty()) {
+                error = L"Visual Studio 2022 com \"Desenvolvimento para desktop com C++\" não "
+                        L"foi encontrado; é necessário para recuperar as trilhas. " +
+                        commandError;
+                return false;
+            }
+        } else {
+            error = L"Não foi possível localizar o Visual Studio Installer (vswhere.exe) para "
+                    L"validar o compilador C++.";
+            return false;
+        }
+    } else {
+        error = L"Visual Studio 2022 com \"Desenvolvimento para desktop com C++\" não foi "
+                L"encontrado; é necessário para recuperar as trilhas.";
+        return false;
+    }
+    return true;
+}
+
+bool preflightAssets(const fs::path& sourceRoot, const fs::path& toolsDirectory,
+                     const CancelToken& cancel,
+                     const std::function<void(const InstallEvent&)>& onEvent,
+                     std::wstring& error) {
+    if (!requireSourceFiles(
+            sourceRoot,
+            {L"scripts\\Build.Common.psm1", L"scripts\\Preparar-Dados-Nativos.ps1",
+             L"scripts\\Instalar-Audios-Originais.py", L"scripts\\Recuperar-Trilha-ISO.ps1",
+             L"scripts\\music-recovery\\CMakeLists.txt",
+             L"scripts\\music-recovery\\install_music.py",
+             L"scripts\\music-recovery\\recover_music.cpp",
+             L"tools-src\\col8-converter\\Col8Converter.csproj",
+             L"tools-src\\col8-converter\\Program.cs", L"tools-src\\col8-converter\\ColFile.cs",
+             L"tools-src\\col8-converter\\ColFace.cs", L"tools-src\\col8-converter\\ColObject.cs",
+             L"tools-src\\col8-converter\\ColScene.cs", L"tools-src\\col8-converter\\NuGet.Config"},
+            error)) {
+        return false;
+    }
+    if (!checkAssetsDependencies(sourceRoot, toolsDirectory, error)) return false;
+    if (cancel.cancelled()) {
+        error = L"Operação cancelada.";
         return false;
     }
     return true;
@@ -194,7 +353,7 @@ bool gameDataMatchesIso(const Layout& layout, IsoImage& image, std::wstring& det
         const fs::path destination = layout.gameDir / toWide(entry.path);
         if (!fileExists(destination)) {
             ++missing;
-        } else if (fileSize(destination) != entry.size) {
+        } else if (!fileMatchesIso(image, entry, destination)) {
             ++mismatched;
         }
     }
@@ -245,6 +404,23 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
     emit(onEvent, InstallStep::Validate, StepState::Done, 100,
          L"ISO NTSC-U " + result.validation.serial + L" validada");
     logInfo(L"ISO validada: " + result.validation.summary());
+
+    const fs::path sourceRoot = preparationSourceRoot(layout, settings);
+    const fs::path toolsDirectory = preparationToolsDirectory(layout, sourceRoot);
+    std::wstring audioDetail;
+    const bool assetsReady = layout.hasAssets() &&
+                             fileExists(layout.assetsDir / L"native" / L"spawn.txt") &&
+                             audioCatalogComplete(layout, audioDetail);
+    if (!assetsReady) {
+        emit(onEvent, InstallStep::Assets, StepState::Running, 0,
+             L"Conferindo scripts e dependências antes da extração...");
+        if (!preflightAssets(sourceRoot, toolsDirectory, cancel, onEvent, result.message)) {
+            if (cancel.cancelled()) result.cancelled = true;
+            logError(result.message);
+            emit(onEvent, InstallStep::Assets, StepState::Failed, 0, result.message);
+            return result;
+        }
+    }
 
     emit(onEvent, InstallStep::Extract, StepState::Running, 0, L"Comparando os dados atuais...");
     uint64_t totalBytes = 0;
@@ -323,7 +499,6 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                 L" s");
     }
 
-    const fs::path sourceRoot = preparationSourceRoot(layout, settings);
     const fs::path analysisDir = layout.logsDir / L"preparation";
     const fs::path buildDir = layout.dataRoot / L"build" / L"setup";
     if (!ensureDirectory(analysisDir, result.message) ||
@@ -334,18 +509,21 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
     }
 
     emit(onEvent, InstallStep::Assets, StepState::Running, 0, L"Conferindo assets e áudio...");
-    std::wstring audioDetail;
-    if (layout.hasAssets() && fileExists(layout.assetsDir / L"native" / L"spawn.txt") &&
-        audioCatalogComplete(layout, audioDetail)) {
+    if (assetsReady) {
         emit(onEvent, InstallStep::Assets, StepState::Skipped, 100,
              L"Assets e áudio já preparados.");
     } else {
         if (!requireSourceFiles(
                 sourceRoot,
-                {L"scripts\\Preparar-Dados-Nativos.ps1",
-                 L"scripts\\Instalar-Audios-Originais.py",
-                 L"scripts\\Recuperar-Trilha-ISO.ps1",
-                 L"scripts\\music-recovery\\install_music.py"},
+                {L"scripts\\Build.Common.psm1", L"scripts\\Preparar-Dados-Nativos.ps1",
+                 L"scripts\\Instalar-Audios-Originais.py", L"scripts\\Recuperar-Trilha-ISO.ps1",
+                 L"scripts\\music-recovery\\CMakeLists.txt",
+                 L"scripts\\music-recovery\\install_music.py",
+                 L"scripts\\music-recovery\\recover_music.cpp",
+                 L"tools-src\\col8-converter\\Col8Converter.csproj",
+                 L"tools-src\\col8-converter\\Program.cs", L"tools-src\\col8-converter\\ColFile.cs",
+                 L"tools-src\\col8-converter\\ColFace.cs", L"tools-src\\col8-converter\\ColObject.cs",
+                 L"tools-src\\col8-converter\\ColScene.cs", L"tools-src\\col8-converter\\NuGet.Config"},
                 result.message)) {
             logError(result.message);
             emit(onEvent, InstallStep::Assets, StepState::Failed, 0, result.message);
@@ -357,7 +535,8 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
         if (!runPowerShell(sourceRoot / L"scripts" / L"Preparar-Dados-Nativos.ps1",
                            {L"-GameDir", layout.gameDir.wstring(), L"-AssetsDir",
                             layout.assetsDir.wstring(), L"-AnalysisDir", analysisDir.wstring(),
-                            L"-BuildDir", buildDir.wstring()},
+                            L"-BuildDir", buildDir.wstring(), L"-ToolsDir",
+                            toolsDirectory.wstring()},
                            sourceRoot, cancel, onEvent, InstallStep::Assets, 2, 55,
                            scriptError)) {
             if (cancel.cancelled()) {
@@ -380,9 +559,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                 result.cancelled = true;
                 result.message = L"Preparação do áudio cancelada.";
             } else {
-                result.message =
-                    L"A conversão do áudio falhou: " + scriptError +
-                    L"\nOs pacotes WAV originais devem estar em %USERPROFILE%\\Downloads.";
+                result.message = L"A conversão do áudio falhou: " + scriptError;
             }
             logError(result.message);
             emit(onEvent, InstallStep::Assets, StepState::Failed, 0, result.message);
@@ -493,7 +670,14 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
     }
 
     emit(onEvent, InstallStep::Verify, StepState::Running, 0, L"Verificando o pacote...");
-    const PackageReport report = inspectPackage(layout);
+    std::wstring manifestError;
+    if (!writePackageManifest(layout, result.validation.bootSha256, manifestError)) {
+        result.message = manifestError;
+        logError(result.message);
+        emit(onEvent, InstallStep::Verify, StepState::Failed, 0, result.message);
+        return result;
+    }
+    const PackageReport report = inspectPackage(layout, result.validation.bootSha256);
     if (!report.ready) {
         result.message = L"O pacote ficou incompleto:";
         for (const CheckItem& item : report.items) {

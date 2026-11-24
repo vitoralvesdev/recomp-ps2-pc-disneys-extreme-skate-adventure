@@ -46,4 +46,4 @@ if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
 }
 Write-Output ''
 Write-Output "Instalador gerado: $setup"
-Write-Output 'O instalador contem o launcher e o runtime; a ISO, os dados do jogo e os assets nao sao incluidos.'
+Write-Output 'O instalador contem o launcher, o runtime e os scripts/fontes de preparacao; a ISO, os pacotes de audio, os dados do jogo, os assets gerados e ferramentas de terceiros nao sao incluidos.'

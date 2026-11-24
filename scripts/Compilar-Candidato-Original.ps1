@@ -25,9 +25,21 @@ Write-DisneyProgress 8 'Validando os modulos IOP extraidos...'
 & (Join-Path $PSScriptRoot 'Testar-Inicializacao-Original.ps1') -GameDir $GameDir -BuildDir $nativeBuild -AnalysisDir $AnalysisDir
 if(-not (Test-Path -LiteralPath $iopLibrary -PathType Leaf)){throw "Biblioteca IOP nao produzida: $iopLibrary"}
 Write-DisneyProgress 25 'Configurando o runtime AOT...'
-& $cmake -S $projectRoot -B $portBuild '-DDISNEY_BUILD_ORIGINAL_AOT_CANDIDATE=ON' '-DDISNEY_BUILD_LEGACY_PROTOTYPE=OFF' "-DFETCHCONTENT_BASE_DIR=$(Join-Path $BuildDir 'deps')" '-DFETCHCONTENT_FULLY_DISCONNECTED=OFF' "-DDISNEY_ORIGINAL_IOP_LIBRARY=$iopLibrary" "-DDISNEY_GUEST_BATCH_DIR=$guestBatches" "-DDISNEY_RUNTIME_OUTPUT_DIR=$RuntimeOutputDir"
+$configureArguments = @(
+    '-S', $projectRoot
+    '-B', $portBuild
+    '-DDISNEY_BUILD_ORIGINAL_AOT_CANDIDATE=ON'
+    '-DDISNEY_BUILD_LEGACY_PROTOTYPE=OFF'
+    "-DFETCHCONTENT_BASE_DIR=$(Join-Path $BuildDir 'deps')"
+    '-DFETCHCONTENT_FULLY_DISCONNECTED=OFF'
+    "-DDISNEY_ORIGINAL_IOP_LIBRARY=$iopLibrary"
+    "-DDISNEY_GUEST_BATCH_DIR=$guestBatches"
+    "-DDISNEY_RUNTIME_OUTPUT_DIR=$RuntimeOutputDir"
+)
+& $cmake @configureArguments
 if($LASTEXITCODE -ne 0){throw 'Falha ao configurar candidato original'}
-$buildTargets=if($SomenteRuntime){@('ps2EntryRunner')}else{@('ps2EntryRunner','DisneySkateLauncher')}
+$buildTargets=@('ps2EntryRunner')
+if(-not $SomenteRuntime){$buildTargets+='DisneySkateLauncher'}
 Write-DisneyProgress 35 'Compilando funcoes, VU, IOP e runtime; as DLLs de midia serao copiadas pelo CMake...'
 & $cmake --build $portBuild --config Release --target @buildTargets --parallel 2
 if($LASTEXITCODE -ne 0){throw 'Falha ao compilar candidato original'}

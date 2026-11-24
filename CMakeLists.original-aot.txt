@@ -9,18 +9,26 @@ foreach(required_path
 endforeach()
 include("${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.legacy.txt")
 target_sources(runtime_flow_test PRIVATE
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/entry_303910_0x303948.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00303f90_0x303f90.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/entry_3040b8_0x3040f0.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_003040f0_0x3040f0.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00304180_0x304180.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_003041c0_0x3041c0.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00304210_0x304210.cpp"
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00304260_0x304260.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d2b90_0x2d2b90.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d3848_0x2d3848.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_002d3888_0x2d3888.cpp")
 target_include_directories(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra")
 target_compile_definitions(runtime_flow_test PRIVATE DISNEY_TEST_ORIGINAL_AOT)
 target_precompile_headers(runtime_flow_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native/original/vu/include/ps2_runtime.h")
-set(native_iop_library "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib" CACHE FILEPATH "Prebuilt Disney original IOP library")
-if(NOT EXISTS "${native_iop_library}")
- message(FATAL_ERROR "Missing DisneyOriginalIop library at '${native_iop_library}'. Build it with scripts/Testar-Inicializacao-Original.ps1 or set DISNEY_ORIGINAL_IOP_LIBRARY.")
+set(DISNEY_ORIGINAL_IOP_LIBRARY "${CMAKE_SOURCE_DIR}/build/native/native/original/iop/Release/DisneyOriginalIop.lib" CACHE FILEPATH "Prebuilt Disney original IOP library")
+if(NOT EXISTS "${DISNEY_ORIGINAL_IOP_LIBRARY}")
+ message(FATAL_ERROR "Missing DisneyOriginalIop library at '${DISNEY_ORIGINAL_IOP_LIBRARY}'. Build it with scripts/Testar-Inicializacao-Original.ps1 or set DISNEY_ORIGINAL_IOP_LIBRARY.")
 endif()
 add_library(DisneyOriginalIop STATIC IMPORTED)
-set_target_properties(DisneyOriginalIop PROPERTIES IMPORTED_LOCATION "${native_iop_library}"
+set_target_properties(DisneyOriginalIop PROPERTIES IMPORTED_LOCATION "${DISNEY_ORIGINAL_IOP_LIBRARY}"
  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/native/original/iop/runtime/include")
 get_target_property(host_links ps2_runtime LINK_LIBRARIES)
 list(REMOVE_ITEM host_links ps2_iop ps2x::iop)

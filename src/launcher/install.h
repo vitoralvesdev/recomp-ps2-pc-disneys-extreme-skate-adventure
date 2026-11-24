@@ -41,8 +41,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                              const InstallOptions& options, const CancelToken& cancel,
                              const std::function<void(const InstallEvent&)>& onEvent);
 
-// True when every file the ISO would write is already present with the expected
-// size. Used for fast revalidation and for skipping extraction.
+// True when every file the ISO would write matches its size and SHA-256.
 bool gameDataMatchesIso(const Layout& layout, IsoImage& image, std::wstring& detail);
 
 fs::path preparationSourceRoot(const Layout& layout, const Settings& settings);

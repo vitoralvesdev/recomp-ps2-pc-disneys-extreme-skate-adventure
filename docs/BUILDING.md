@@ -22,8 +22,9 @@ ISO em diretórios ignorados (`src/generated-*`, `native/original/vu/generated/`
 - Uma cópia legal do jogo somente para preparar/compilar o runtime completo.
 
 Para o conversor de colisão, também é necessário .NET SDK 9. Ghidra é usado na análise e
-recompilação do código do jogo, mas ainda não há um fluxo headless configurado e validado no
-repositório.
+recompilação do código do jogo. `Abrir-Ghidra-PS2.cmd` aceita `GHIDRA_HOME` ou o diretório do
+Ghidra como primeiro argumento, descobre `ghidraRun.bat` no `PATH` e respeita `JAVA_HOME`. O fluxo
+headless ainda não está validado no repositório.
 
 ## Launcher (sem dados do jogo)
 
@@ -64,7 +65,9 @@ cmake -S . -B build/source -A x64
 cmake --build build/source --config Release --parallel 2
 ```
 
-Sem os dados locais, o launcher apenas informa que o pacote do jogo não está preparado.
+Sem os dados locais, o launcher apenas informa que o pacote do jogo não está preparado. O
+laboratório de assets opcional (`DISNEY_BUILD_RESOURCE_LAB=ON`) exige raylib 5.5 e usa
+`DISNEY_RAYLIB_ROOT` para localizar `raylib-src` e `raylib-build`, sem caminho pessoal padrão.
 
 ## Runtime AOT (ainda dependente do ambiente local)
 
@@ -75,8 +78,10 @@ limpo:
 .\scripts\Compilar-Candidato-Original.ps1
 ```
 
-Ele espera PS2Recomp, a biblioteca IOP compilada e fontes recompiladas de EE/VU. O projeto ainda
-precisa versionar ou obter de forma determinística as ferramentas permitidas e fornecer um
+Ele espera PS2Recomp, a biblioteca IOP compilada e fontes recompiladas de EE/VU. O script passa o
+caminho efetivamente compilado em `DISNEY_ORIGINAL_IOP_LIBRARY`, e o CMake preserva esse parâmetro;
+uma configuração manual deve usar a mesma variável. O projeto ainda precisa versionar ou obter de
+forma determinística as ferramentas permitidas e fornecer um
 gerador automatizado para as saídas derivadas da ISO antes que esse alvo possa ser considerado
 reproduzível. Não publique `original/`, `assets/`, `runtime/`, `build/`, `analysis/` ou `dist/`:
 veja [DISTRIBUTION.md](DISTRIBUTION.md).

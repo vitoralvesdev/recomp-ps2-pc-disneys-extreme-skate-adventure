@@ -25,7 +25,12 @@ struct PackageReport {
 bool runtimeFilesReady(const Layout& layout);
 bool audioCatalogComplete(const Layout& layout, std::wstring& detail);
 
-// Checks every required installation component before enabling "Jogar".
-PackageReport inspectPackage(const Layout& layout);
+// Checks every required installation component and its SHA-256 manifest before
+// enabling "Jogar". An empty boot reference uses the documented NTSC-U ELF hash.
+PackageReport inspectPackage(const Layout& layout, std::wstring_view bootReference = {});
+
+// Writes the package manifest only after all required components pass inspection.
+bool writePackageManifest(const Layout& layout, std::wstring_view bootReference,
+                          std::wstring& error);
 
 } // namespace ds

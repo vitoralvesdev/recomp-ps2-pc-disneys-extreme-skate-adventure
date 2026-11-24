@@ -18,9 +18,11 @@
 #include "imports/iop_timrman.h"
 #include "imports/iop_vblank.h"
 #include "iop_emulator_const.h"
+#include "ps2_fatal_state.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <map>
 #include <optional>
 #include <span>
@@ -581,7 +583,7 @@ namespace ps2x::iop::detail
             try
             {
                 const uint64_t target = totalCycles + cycles;
-                while (totalCycles < target)
+                while (totalCycles < target && !ps2::runtime::fatalErrorState().load(std::memory_order_acquire))
                 {
                     servicePendingDmaInterrupts();
                     servicePendingGuestCallbacks();
@@ -605,9 +607,15 @@ namespace ps2x::iop::detail
                         ++totalCycles;
                 }
             }
+            catch (const std::exception &e)
+            {
+                ps2::runtime::fatalErrorState().store(true, std::memory_order_release);
+                std::fprintf(stderr, "[IOP] fatal exception: %s\n", e.what());
+            }
             catch (...)
             {
-                // Runtime scheduling must never throw through EeScheduler::accountCycles().
+                ps2::runtime::fatalErrorState().store(true, std::memory_order_release);
+                std::fprintf(stderr, "[IOP] fatal exception: unknown\n");
             }
         }
 

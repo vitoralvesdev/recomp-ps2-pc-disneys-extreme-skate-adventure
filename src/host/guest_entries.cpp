@@ -2,6 +2,21 @@
 #include "ps2_recompiled_functions.h"
 #include "hang_diagnostics.h"
 void disneySampleOriginalPad(uint8_t*,R5900Context*,PS2Runtime*);
+void entry_303910_0x303948(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303948_0x303948(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303968_0x303968(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303a70_0x303a70(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303bb0_0x303bb0(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303d50_0x303d50(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303d70_0x303d70(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303d98_0x303d98(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00303f90_0x303f90(uint8_t*,R5900Context*,PS2Runtime*);
+void entry_3040b8_0x3040f0(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_003040f0_0x3040f0(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00304180_0x304180(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_003041c0_0x3041c0(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00304210_0x304210(uint8_t*,R5900Context*,PS2Runtime*);
+void FUN_00304260_0x304260(uint8_t*,R5900Context*,PS2Runtime*);
 namespace {
 void disneyOriginalInputEntry(uint8_t* ram,R5900Context* context,PS2Runtime* runtime) {
     if(context->pc==0x112770u)disneySampleOriginalPad(ram,context,runtime);
@@ -9,10 +24,46 @@ void disneyOriginalInputEntry(uint8_t* ram,R5900Context* context,PS2Runtime* run
     if(DisneyHang::enabled())++DisneyHang::padDone;
 
 }
+// PS2Recomp needs 0x303fc0 as an entry point to branch past the copied prologue.
+void disneyRelocatedExceptionReturn(uint8_t* ram,R5900Context* context,PS2Runtime* runtime) {
+    context->pc=0x303fc0u;
+    FUN_00303f90_0x303f90(ram,context,runtime);
+}
 }
 void registerDisneyNativeSaves(PS2Runtime&);
 void registerDisneyNativeAudio(PS2Runtime&);
 void registerDisneyGuestEntries(PS2Runtime& runtime) {
+    const auto registerRelocated = [&runtime](uint32_t sourceBase, uint32_t destinationBase,
+                                               uint32_t sourceBegin, uint32_t sourceEnd,
+                                               PS2Runtime::RecompiledFunction function) {
+        const uint32_t address = sourceBegin - sourceBase + destinationBase;
+        const uint32_t size = sourceEnd - sourceBegin;
+        runtime.registerFunction(address, function);
+        runtime.registerFunction(address | 0x80000000u, function);
+        runtime.registerFunctionRange(sourceBegin, sourceEnd, function);
+        runtime.registerFunctionRange(address, address + size, function);
+        runtime.registerFunctionRange(address | 0x80000000u, (address | 0x80000000u) + size, function);
+    };
+    // InitAlarm copies this kernel block from 0x303910 to 0x80076000.
+    registerRelocated(0x303910u, 0x76000u, 0x303910u, 0x303948u, &entry_303910_0x303948);
+    registerRelocated(0x303910u, 0x76000u, 0x303948u, 0x303968u, &FUN_00303948_0x303948);
+    registerRelocated(0x303910u, 0x76000u, 0x303968u, 0x303a70u, &FUN_00303968_0x303968);
+    registerRelocated(0x303910u, 0x76000u, 0x303a70u, 0x303bb0u, &FUN_00303a70_0x303a70);
+    registerRelocated(0x303910u, 0x76000u, 0x303bb0u, 0x303d50u, &FUN_00303bb0_0x303bb0);
+    registerRelocated(0x303910u, 0x76000u, 0x303d50u, 0x303d70u, &FUN_00303d50_0x303d50);
+    registerRelocated(0x303910u, 0x76000u, 0x303d70u, 0x303d98u, &FUN_00303d70_0x303d70);
+    registerRelocated(0x303910u, 0x76000u, 0x303d98u, 0x303f90u, &FUN_00303d98_0x303d98);
+    registerRelocated(0x303910u, 0x76000u, 0x303f90u, 0x303fccu, &FUN_00303f90_0x303f90);
+    const uint32_t exceptionReturnEntry = 0x303fc0u - 0x303910u + 0x76000u;
+    runtime.registerFunction(exceptionReturnEntry, &disneyRelocatedExceptionReturn);
+    runtime.registerFunction(exceptionReturnEntry | 0x80000000u, &disneyRelocatedExceptionReturn);
+    // The original kernel copies its TLB block from 0x3040b8 to 0x80075000.
+    registerRelocated(0x3040b8u, 0x75000u, 0x3040b8u, 0x3040f0u, &entry_3040b8_0x3040f0);
+    registerRelocated(0x3040b8u, 0x75000u, 0x3040f0u, 0x304180u, &FUN_003040f0_0x3040f0);
+    registerRelocated(0x3040b8u, 0x75000u, 0x304180u, 0x3041c0u, &FUN_00304180_0x304180);
+    registerRelocated(0x3040b8u, 0x75000u, 0x3041c0u, 0x304210u, &FUN_003041c0_0x3041c0);
+    registerRelocated(0x3040b8u, 0x75000u, 0x304210u, 0x304260u, &FUN_00304210_0x304210);
+    registerRelocated(0x3040b8u, 0x75000u, 0x304260u, 0x304390u, &FUN_00304260_0x304260);
  registerDisneyNativeSaves(runtime);
  registerDisneyNativeAudio(runtime);
  runtime.registerFunction(0x112770u,&disneyOriginalInputEntry);

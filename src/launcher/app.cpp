@@ -14,7 +14,13 @@
 #include <commdlg.h>
 #include <gdiplus.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <softpub.h>
+#include <WinTrust.h>
 #include <windowsx.h>
+#include <wintrust.h>
+
+#pragma comment(lib, "wintrust.lib")
 
 #include <algorithm>
 #include <array>
@@ -41,6 +47,7 @@ constexpr UINT WM_APP_UPDATE_DONE = WM_APP + 14;
 constexpr UINT WM_APP_DOWNLOAD_PROGRESS = WM_APP + 15;
 constexpr UINT WM_APP_DOWNLOAD_DONE = WM_APP + 16;
 constexpr UINT WM_APP_STARTUP = WM_APP + 17;
+constexpr UINT_PTR kUpdateSpinnerTimer = 1;
 
 constexpr uint32_t kBgTop = 0x080D19;
 constexpr uint32_t kBgBottom = 0x141C32;
@@ -62,6 +69,7 @@ using Gdiplus::RectF;
 
 enum Page { PageHome, PageInstalling, PageReady, PageSettings, PageUpdates, PageLogs };
 enum NoticeKind { NoticeInfo, NoticeSuccess, NoticeWarning, NoticeError };
+enum UpdateModalState { UpdateModalNone, UpdateModalChecking, UpdateModalNoUpdates };
 
 enum Action {
     ActNone = 0,
@@ -99,6 +107,7 @@ enum Action {
     ActOpenControls,
     ActRefreshLogs,
     ActCopyDiagnostics,
+    ActCloseUpdateModal,
     ActClose,
 };
 
@@ -126,6 +135,7 @@ struct UpdateOutcome {
     std::wstring error;
     ReleaseInfo release;
     bool hasUpdate = false;
+    bool manual = false;
 };
 
 struct DownloadOutcome {
@@ -146,6 +156,31 @@ std::wstring firstLine(const std::wstring& text) {
 bool hasAsciiOnly(const std::wstring& text) {
     for (wchar_t ch : text) {
         if (ch > 0x7f) return false;
+    }
+    return true;
+}
+
+bool verifyInstallerSignature(const fs::path& path, std::wstring& error) {
+    WINTRUST_FILE_INFO fileInfo{};
+    fileInfo.cbStruct = sizeof(fileInfo);
+    fileInfo.pcwszFilePath = path.c_str();
+
+    GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    WINTRUST_DATA trustData{};
+    trustData.cbStruct = sizeof(trustData);
+    trustData.dwUIChoice = WTD_UI_NONE;
+    trustData.fdwRevocationChecks = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+    trustData.dwUnionChoice = WTD_CHOICE_FILE;
+    trustData.pFile = &fileInfo;
+    trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+
+    const LONG status = WinVerifyTrust(nullptr, &action, &trustData);
+    trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(nullptr, &action, &trustData);
+    if (status != S_OK) {
+        error = L"O Windows não validou uma assinatura digital confiável para o instalador: " +
+                windowsErrorMessage(static_cast<DWORD>(status));
+        return false;
     }
     return true;
 }
@@ -248,7 +283,9 @@ private:
     void loadCover();
     void setPage(int page);
     void setNotice(const std::wstring& text, NoticeKind kind);
+    void setUpdateModal(UpdateModalState state);
     void refreshPackage();
+    bool canInstall() const;
     bool validateSelectedIso();
     bool saveSettings();
     void applyDraft();
@@ -263,6 +300,7 @@ private:
     void drawSettings(Gdiplus::Graphics& graphics, float width, float height, float top);
     void drawUpdates(Gdiplus::Graphics& graphics, float width, float height, float top);
     void drawLogs(Gdiplus::Graphics& graphics, float width, float height, float top);
+    void drawUpdateModal(Gdiplus::Graphics& graphics, float width, float height);
 
     void drawCard(Gdiplus::Graphics& graphics, const RectF& rect);
     void drawButton(Gdiplus::Graphics& graphics, const RectF& rect, const std::wstring& label,
@@ -344,6 +382,8 @@ private:
 
     bool updateChecking_ = false;
     bool updateHasNew_ = false;
+    UpdateModalState updateModal_ = UpdateModalNone;
+    int updateSpinnerAngle_ = 0;
     ReleaseInfo release_;
     std::wstring updateStatus_;
     std::wstring updateError_;
@@ -566,6 +606,12 @@ LRESULT App::Impl::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     }
     case WM_ERASEBKGND:
         return 1;
+    case WM_TIMER:
+        if (wParam == kUpdateSpinnerTimer && updateModal_ == UpdateModalChecking) {
+            updateSpinnerAngle_ = (updateSpinnerAngle_ + 30) % 360;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+        return 0;
     case WM_SIZE:
         layoutLogEdit();
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -614,8 +660,15 @@ LRESULT App::Impl::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         }
         break;
     case WM_KEYDOWN:
+        if (updateModal_ != UpdateModalNone) {
+            if (updateModal_ == UpdateModalNoUpdates &&
+                (wParam == VK_RETURN || wParam == VK_ESCAPE)) {
+                onAction(ActCloseUpdateModal, 0);
+            }
+            return 0;
+        }
         if (wParam == VK_RETURN) {
-            if (page_ == PageHome && isoValid_) onAction(ActInstall, 0);
+            if (page_ == PageHome && canInstall()) onAction(ActInstall, 0);
             else if (page_ == PageReady && !gameRunning_) onAction(ActPlay, 0);
             else if (page_ == PageSettings) onAction(ActSaveSettings, 0);
             else if (page_ == PageUpdates) onAction(ActCheckUpdates, 0);
@@ -730,6 +783,9 @@ void App::Impl::paint(HDC target) {
         case PageUpdates: drawUpdates(graphics, logicalWidth, logicalHeight, top); break;
         case PageLogs: drawLogs(graphics, logicalWidth, logicalHeight, top); break;
         default: break;
+        }
+        if (updateModal_ != UpdateModalNone) {
+            drawUpdateModal(graphics, logicalWidth, logicalHeight);
         }
     }
 
@@ -935,7 +991,8 @@ void App::Impl::drawHome(Gdiplus::Graphics& graphics, float width, float height,
                  R(left.X / scale_ + 24, top + 58, left.Width / scale_ - 48, 48), 
                  ui::TextAlign::Left, true);
 
-    ui::drawText(graphics, L"1  validar a ISO     2  extrair os dados     3  preparar o runtime",
+    ui::drawText(graphics,
+                 L"1  validar a ISO     2  extrair os dados     3  preparar os assets e o áudio",
                  *fonts_.smallText, ui::color(kFaint),
                  R(left.X / scale_ + 24, top + 112, left.Width / scale_ - 48, 20));
 
@@ -967,15 +1024,9 @@ void App::Impl::drawHome(Gdiplus::Graphics& graphics, float width, float height,
     }
     ui::drawText(graphics, status, *fonts_.smallText, statusColor,
                  R(fieldX, fieldY + 60, fieldW, 22));
-    ui::drawText(graphics,
-                 L"Espaço estimado para os dados extraídos: cerca de 2,2 GB. "
-                 L"A ISO não é copiada nem enviada.",
-                 *fonts_.smallText, ui::color(kFaint),
-                 R(fieldX, fieldY + 88, fieldW, 20));
-
     const float buttonY = top + cardHeight - 70;
     drawButton(graphics, R(fieldX, buttonY, 210, 46), L"Instalar jogo", 0,
-               isoValid_ && !installing_, ActInstall);
+               canInstall(), ActInstall);
     drawButton(graphics, R(fieldX + 222, buttonY, 160, 46), L"Verificar pacote", 1, true,
                ActRefreshPackage);
 
@@ -1088,7 +1139,7 @@ void App::Impl::drawInstalling(Gdiplus::Graphics& graphics, float width, float h
                    ActBackHome);
         if (!installSucceeded_) {
             drawButton(graphics, R(x + w - 336, buttonsY, 160, 42), L"Tentar novamente", 0,
-                       isoValid_, ActRetryInstall);
+                       canInstall(), ActRetryInstall);
         } else {
             drawButton(graphics, R(x + w - 336, buttonsY, 160, 42), L"Jogar", 0,
                        report_.ready && !gameRunning_, ActPlay);
@@ -1269,22 +1320,22 @@ void App::Impl::drawSettings(Gdiplus::Graphics& graphics, float width, float hei
                    action);
     };
     pathRow(L"Dados do jogo", layout_.gameDir, ActOpenGameFolder, top + 100);
-    pathRow(L"Saves", layout_.savesDir, ActOpenSaves, top + 152);
-    pathRow(L"Logs", layout_.logsDir, ActOpenLogsFolder, top + 204);
+    pathRow(L"Saves", layout_.savesDir, ActOpenSaves, top + 142);
+    pathRow(L"Logs", layout_.logsDir, ActOpenLogsFolder, top + 184);
 
     ui::drawText(graphics, L"Controles", *fonts_.subheading, ui::color(kText),
-                 R(rightX, top + 266, rightW, 24));
+                 R(rightX, top + 226, rightW, 24));
     ui::drawText(graphics,
                  L"Teclado: WASD/setas, Espaço/X, C, Enter, Tab, Q/E.\n"
                  L"Controle Xbox: botões por posição, com zona morta de 18%.",
-                 fonts_.smallText, ui::color(kMuted), R(rightX, top + 296, rightW, 40), 
+                 fonts_.smallText, ui::color(kMuted), R(rightX, top + 256, rightW, 40),
                  ui::TextAlign::Left, true);
-    drawButton(graphics, R(rightX, top + 344, rightW, 36), L"Abrir guia de controles", 1, true,
+    drawButton(graphics, R(rightX, top + 302, rightW, 36), L"Abrir guia de controles", 1, true,
                ActOpenControls);
     ui::drawText(graphics,
                  L"As alterações valem na próxima vez que o jogo for aberto.\n"
                  L"Configuração: " + relativeDisplayPath(layout_.configPath, layout_.dataRoot),
-                 fonts_.smallText, ui::color(kFaint), R(rightX, top + 392, rightW, 36), 
+                 fonts_.smallText, ui::color(kFaint), R(rightX, top + 348, rightW, 36),
                  ui::TextAlign::Left, true);
 
     const float buttonsY = top + cardHeight - 58;
@@ -1336,7 +1387,8 @@ void App::Impl::drawUpdates(Gdiplus::Graphics& graphics, float width, float heig
     }
 
     const float buttonsY = top + cardHeight - 58;
-    drawButton(graphics, R(x, buttonsY, 170, 40), L"Verificar novamente", 1,
+    drawButton(graphics, R(x, buttonsY, 170, 40),
+               updateChecking_ ? L"Verificando..." : L"Verificar novamente", 1,
                !updateChecking_, ActCheckUpdates);
     if (!release_.htmlUrl.empty()) {
         drawButton(graphics, R(x + 182, buttonsY, 170, 40), L"Abrir página da versão", 1, true,
@@ -1369,6 +1421,54 @@ void App::Impl::drawUpdates(Gdiplus::Graphics& graphics, float width, float heig
                  L"A verificação consulta apenas metadados públicos do GitHub; "
                  L"nenhum dado do jogo é enviado.",
                  *fonts_.smallText, ui::color(kFaint), R(x, top + cardHeight - 92, w, 18));
+}
+
+void App::Impl::drawUpdateModal(Gdiplus::Graphics& graphics, float width, float height) {
+    if (updateModal_ == UpdateModalNone) return;
+    hits_.clear();
+
+    Gdiplus::SolidBrush overlay(ui::color(0x03060D, 180));
+    graphics.FillRectangle(&overlay, RectF(0, 0, width, height));
+
+    const bool checking = updateModal_ == UpdateModalChecking;
+    const float cardWidth = 430;
+    const float cardHeight = checking ? 220 : 280;
+    const float cardX = (width - cardWidth) / 2;
+    const float cardY = (height - cardHeight) / 2;
+    const RectF card = R(cardX, cardY, cardWidth, cardHeight);
+    drawCard(graphics, card);
+
+    if (checking) {
+        const RectF spinner = R(cardX + 191, cardY + 30, 48, 48);
+        Gdiplus::Pen track(ui::color(kBorder), S(4));
+        Gdiplus::Pen arc(ui::color(kAccentLight), S(4));
+        graphics.DrawEllipse(&track, spinner);
+        graphics.DrawArc(&arc, spinner, static_cast<float>(updateSpinnerAngle_), 250);
+        ui::drawText(graphics, L"Verificando atualizações", fonts_.heading, ui::color(kText),
+                     R(cardX + 24, cardY + 94, cardWidth - 48, 30), ui::TextAlign::Center);
+        ui::drawText(graphics, L"Consultando a versão mais recente no GitHub...", fonts_.body,
+                     ui::color(kMuted), R(cardX + 24, cardY + 132, cardWidth - 48, 44),
+                     ui::TextAlign::Center, true);
+        return;
+    }
+
+    const RectF status = R(cardX + 193, cardY + 28, 44, 44);
+    ui::fillEllipse(graphics, status, ui::color(kSuccess, 38));
+    Gdiplus::Pen statusBorder(ui::color(kSuccess), S(1.5f));
+    graphics.DrawEllipse(&statusBorder, status);
+    ui::drawText(graphics, L"\x2713", fonts_.subheading, ui::color(kSuccess), status,
+                 ui::TextAlign::Center);
+    ui::drawText(graphics, L"Nenhuma atualização encontrada", fonts_.heading, ui::color(kText),
+                 R(cardX + 24, cardY + 90, cardWidth - 48, 30), ui::TextAlign::Center);
+    const std::wstring detail = release_.tag.empty()
+        ? L"Ainda não há versões publicadas no GitHub. Esta é a build local "
+          DISNEY_LAUNCHER_VERSION_STRING L"."
+        : L"A versão instalada é a " DISNEY_LAUNCHER_VERSION_STRING
+          L", a mais recente disponível.";
+    ui::drawText(graphics, detail, fonts_.body, ui::color(kMuted),
+                 R(cardX + 32, cardY + 128, cardWidth - 64, 52), ui::TextAlign::Center, true);
+    drawButton(graphics, R(cardX + 145, cardY + 214, 140, 42), L"Entendi", 0, true,
+               ActCloseUpdateModal);
 }
 
 void App::Impl::drawLogs(Gdiplus::Graphics& graphics, float width, float height, float top) {
@@ -1449,6 +1549,19 @@ void App::Impl::setNotice(const std::wstring& text, NoticeKind kind) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+void App::Impl::setUpdateModal(UpdateModalState state) {
+    updateModal_ = state;
+    hoverId_ = 0;
+    pressedId_ = 0;
+    if (GetCapture() == hwnd_) ReleaseCapture();
+    KillTimer(hwnd_, kUpdateSpinnerTimer);
+    if (state == UpdateModalChecking) {
+        updateSpinnerAngle_ = 0;
+        SetTimer(hwnd_, kUpdateSpinnerTimer, 60, nullptr);
+    }
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void App::Impl::refreshPackage() {
     report_ = inspectPackage(layout_);
     if (report_.ready) {
@@ -1466,6 +1579,10 @@ void App::Impl::refreshPackage() {
         if (page_ == PageReady) setPage(PageHome);
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+bool App::Impl::canInstall() const {
+    return isoValid_ && !installing_;
 }
 
 bool App::Impl::validateSelectedIso() {
@@ -1604,11 +1721,14 @@ void App::Impl::handleInstallDone(std::unique_ptr<InstallResult> result) {
         setPage(PageReady);
         setNotice(L"Instalação concluída. O jogo está pronto para abrir.", NoticeSuccess);
     } else {
+        report_ = inspectPackage(layout_);
         if (result->cancelled) {
             setNotice(L"Instalação cancelada. Os arquivos já extraídos foram mantidos.",
                       NoticeWarning);
         } else {
             setNotice(firstLine(result->message), NoticeError);
+            MessageBoxW(hwnd_, result->message.c_str(), L"Instalação não concluída",
+                        MB_OK | MB_ICONERROR);
         }
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -1737,19 +1857,26 @@ void App::Impl::handleGameExited(DWORD exitCode) {
 
 void App::Impl::startUpdateCheck(bool manual) {
     if (updateChecking_) {
-        if (manual) setPage(PageUpdates);
+        if (manual) {
+            setPage(PageUpdates);
+            setUpdateModal(UpdateModalChecking);
+        }
         return;
     }
     updateChecking_ = true;
     updateError_.clear();
     updateStatus_ = L"Consultando a versão mais recente no GitHub...";
-    if (manual) setPage(PageUpdates);
+    if (manual) {
+        setPage(PageUpdates);
+        setUpdateModal(UpdateModalChecking);
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
 
     const HWND target = hwnd_;
-    std::thread([target]() {
+    std::thread([target, manual]() {
         auto outcome = std::make_unique<UpdateOutcome>();
         std::wstring error;
+        outcome->manual = manual;
         outcome->ok = fetchLatestRelease(outcome->release, error);
         outcome->error = error;
         if (outcome->ok) {
@@ -1763,10 +1890,12 @@ void App::Impl::startUpdateCheck(bool manual) {
 
 void App::Impl::handleUpdateDone(std::unique_ptr<UpdateOutcome> outcome) {
     updateChecking_ = false;
+    bool noUpdates = false;
     if (!outcome->ok) {
         if (outcome->error.find(L"Ainda não há versões publicadas") != std::wstring::npos) {
             updateStatus_ = L"Ainda não há versões publicadas no GitHub. "
                             L"Esta é a build local " DISNEY_LAUNCHER_VERSION_STRING L".";
+            noUpdates = true;
         } else {
             updateStatus_ = L"Não foi possível verificar atualizações: " + outcome->error;
             logWarning(updateStatus_);
@@ -1774,6 +1903,7 @@ void App::Impl::handleUpdateDone(std::unique_ptr<UpdateOutcome> outcome) {
     } else {
         release_ = outcome->release;
         updateHasNew_ = outcome->hasUpdate;
+        noUpdates = !updateHasNew_;
         if (updateHasNew_) {
             updateStatus_ = L"Nova versão disponível: " + release_.tag + L".";
         } else {
@@ -1781,24 +1911,32 @@ void App::Impl::handleUpdateDone(std::unique_ptr<UpdateOutcome> outcome) {
                             release_.tag + L").";
         }
     }
+    setUpdateModal(outcome->manual && noUpdates ? UpdateModalNoUpdates : UpdateModalNone);
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void App::Impl::startDownload() {
     if (downloading_) return;
-    const ReleaseAsset* asset = release_.findAssetWithSuffix(L".exe");
+    const std::wstring installerName =
+        L"DisneySkateSetup-" DISNEY_LAUNCHER_VERSION_STRING L".exe";
+    const ReleaseAsset* asset = nullptr;
+    for (const ReleaseAsset& candidate : release_.assets) {
+        if (candidate.name != installerName) continue;
+        if (asset) {
+            updateError_ = L"O release contém mais de um instalador oficial com o mesmo nome.";
+            setNotice(updateError_, NoticeError);
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
+        asset = &candidate;
+    }
     if (!asset) {
-        if (!release_.htmlUrl.empty()) openPath(release_.htmlUrl);
+        updateError_ = L"O release não contém o instalador oficial esperado.";
+        setNotice(updateError_, NoticeError);
+        InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
-    std::wstring name = asset->name;
-    for (wchar_t& ch : name) {
-        if (ch == L'\\' || ch == L'/' || ch == L':' || ch == L'*' || ch == L'?' ||
-            ch == L'"' || ch == L'<' || ch == L'>' || ch == L'|') {
-            ch = L'_';
-        }
-    }
-    const fs::path destination = fs::temp_directory_path() / name;
+    const fs::path destination = fs::temp_directory_path() / installerName;
     downloading_ = true;
     downloadPercent_ = 0;
     updateError_.clear();
@@ -1838,17 +1976,37 @@ void App::Impl::handleDownloadDone(std::unique_ptr<DownloadOutcome> outcome) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    std::wstring signatureError;
+    if (!verifyInstallerSignature(outcome->path, signatureError)) {
+        updateError_ = signatureError;
+        setNotice(L"Instalador recusado: " + firstLine(signatureError), NoticeError);
+        logError(updateError_);
+        DeleteFileW(outcome->path.c_str());
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     downloadedInstaller_ = outcome->path.wstring();
-    setNotice(L"Download concluído. O instalador foi salvo em " + outcome->path.wstring(),
+    setNotice(L"Download concluído e assinatura validada. O instalador foi salvo em " +
+                  outcome->path.wstring(),
               NoticeSuccess);
     InvalidateRect(hwnd_, nullptr, FALSE);
     const int answer = MessageBoxW(
         hwnd_,
-        (L"O instalador foi baixado.\n\n" + outcome->path.wstring() +
+        (L"O instalador foi baixado e sua assinatura foi validada pelo Windows.\n\n" +
+         outcome->path.wstring() +
          L"\n\nDeseja executá-lo agora? O launcher será fechado para a atualização.")
             .c_str(),
         kWindowTitle, MB_YESNO | MB_ICONQUESTION);
     if (answer == IDYES) {
+        if (!verifyInstallerSignature(outcome->path, signatureError)) {
+            updateError_ = signatureError;
+            downloadedInstaller_.clear();
+            setNotice(L"Instalador recusado: " + firstLine(signatureError), NoticeError);
+            logError(updateError_);
+            DeleteFileW(outcome->path.c_str());
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return;
+        }
         if (openPath(outcome->path)) DestroyWindow(hwnd_);
     }
 }
@@ -2093,6 +2251,9 @@ void App::Impl::onAction(int action, int value) {
         break;
     case ActCopyDiagnostics:
         copyDiagnostics();
+        break;
+    case ActCloseUpdateModal:
+        setUpdateModal(UpdateModalNone);
         break;
     case ActClose:
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);

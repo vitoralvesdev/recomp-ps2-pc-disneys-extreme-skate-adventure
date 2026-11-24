@@ -2,6 +2,8 @@
 
 Atualização de 25/10: as 27 músicas antes ausentes foram recuperadas da ISO; o catálogo passou de 1.258 para 1.285 recursos, incluindo 37 entradas de música. Consulte [recuperação e testes](trilha-sonora-2026-10-25.md). Os números da integração inicial abaixo são históricos.
 
+Atualização de 24/11/2026: o instalador não exige mais os 19 ZIPs externos e converte o áudio diretamente dos dados da ISO selecionada.
+
 O executável principal continua sendo `Disney's Extreme Skate Adventure.exe`.
 Ele abre `runtime/DisneySkateRuntime.exe`, agora com mixer PCM nativo para os
 eventos originais de efeitos, vozes e os ambientes disponíveis. Mantenha também

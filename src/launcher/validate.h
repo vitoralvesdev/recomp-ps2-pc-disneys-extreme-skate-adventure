@@ -22,11 +22,14 @@ struct IsoValidation {
 };
 
 // Confirms that the image is the expected NTSC-U revision before writing data:
-// SYSTEM.CNF boot entry, VMODE, ELF header of SLUS_206.07 and the expected data
-// modules. It does not hash the entire image (multi-gigabyte); the boot ELF hash
-// is recorded in the installation state instead.
+// exact SYSTEM.CNF boot entry, VMODE, ELF header and reference SHA-256 of
+// SLUS_206.07, plus non-empty required data modules. The full ISO is not hashed.
 bool validateIso(IsoImage& image, IsoValidation& validation);
 
+bool sha256IsoEntry(IsoImage& image, const IsoEntry& entry, std::wstring& digest,
+                    std::wstring& error);
+
 const wchar_t* expectedSerial();
+const wchar_t* expectedBootSha256();
 
 } // namespace ds

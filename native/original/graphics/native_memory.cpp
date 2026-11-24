@@ -1338,6 +1338,7 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 
                 uint32_t chcr = value;
                 uint32_t mode = (chcr >> 2) & 0x3;
+                bool chainTransferFailed = false;
 
                 if (mode == 0 && qwc > 0)
                 {
@@ -1353,14 +1354,23 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     const int kMaxChainTags = 4096;
                     std::vector<uint8_t> chainBuf;
                     bool chainCompleted = false;
+                    bool chainFailed = false;
+                    const char *channelName = channelBase == 0x1000A000u
+                                                   ? "GIF"
+                                                   : (channelBase == 0x10009000u ? "VIF1" : "VIF0");
+                    auto failChain = [&](uint32_t address, const char *reason)
+                    {
+                        chainFailed = true;
+                        std::cerr << "[DMA " << channelName << "] Chain failure at address 0x" << std::hex << address
+                                  << ": " << reason << std::dec
+                                  << "; completion IRQ suppressed" << std::endl;
+                    };
 
                     auto appendData = [&](uint32_t srcAddr, uint32_t qwCount)
                     {
                         const uint64_t bytes64 = static_cast<uint64_t>(qwCount) * 16ull;
                         uint32_t bytes = (bytes64 > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<uint32_t>(bytes64);
                         const bool scratch = isScratchpad(srcAddr);
-                        uint32_t src = 0;
-                        src = translateAddress(srcAddr);
                         const uint8_t *base2;
                         uint32_t maxSz2;
                         if (scratch)
@@ -1372,6 +1382,22 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                         {
                             base2 = m_rdram;
                             maxSz2 = PS2_RAM_SIZE;
+                        }
+
+                        uint32_t src = 0;
+                        try
+                        {
+                            src = translateAddress(srcAddr);
+                            if (src >= maxSz2)
+                            {
+                                failChain(srcAddr, "DMA source is outside RDRAM/scratchpad");
+                                return;
+                            }
+                        }
+                        catch (const std::exception &error)
+                        {
+                            failChain(srcAddr, error.what());
+                            return;
                         }
 
                         while (bytes > 0)
@@ -1391,14 +1417,24 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 
                     auto appendVifTagData = [&](uint32_t localTagAddr)
                     {
-                        uint32_t tagPhys = 0u;
                         const bool tagScratch = isScratchpad(localTagAddr);
-                        tagPhys = translateAddress(localTagAddr);
-
                         const uint8_t *localBase = tagScratch ? m_scratchpad : m_rdram;
                         const uint32_t localMax = tagScratch ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE;
-                        if (tagPhys + 16u > localMax)
+                        uint32_t tagPhys = 0u;
+                        try
+                        {
+                            tagPhys = translateAddress(localTagAddr);
+                            if (tagPhys > localMax || 16u > localMax - tagPhys)
+                            {
+                                failChain(localTagAddr, "DMA tag is outside RDRAM/scratchpad");
+                                return;
+                            }
+                        }
+                        catch (const std::exception &error)
+                        {
+                            failChain(localTagAddr, error.what());
                             return;
+                        }
 
                         // CHCR.TTE sends the DMAtag's upper 64 bits to the channel before
                         // the tag payload. VIF chains use those bytes for two VIFcodes.
@@ -1421,8 +1457,9 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                         {
                             physTag = translateAddress(tagAddr);
                         }
-                        catch (...)
+                        catch (const std::exception &error)
                         {
+                            failChain(tagAddr, error.what());
                             break;
                         }
                         const uint8_t *tagBase;
@@ -1437,8 +1474,11 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                             tagBase = m_rdram;
                             tagMax = PS2_RAM_SIZE;
                         }
-                        if (physTag + 16 > tagMax)
+                        if (physTag > tagMax || 16u > tagMax - physTag)
+                        {
+                            failChain(tagAddr, "DMA tag is outside RDRAM/scratchpad");
                             break;
+                        }
 
                         const uint8_t *tp = tagBase + physTag;
                         uint64_t tag = loadScalar<uint64_t>(tp, 0, 16, "dma chain tag", tagAddr);
@@ -1519,9 +1559,13 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 
                         if (transferTagData)
                             appendVifTagData(currentTagAddr);
+                        if (chainFailed)
+                            break;
 
                         if (hasPayload)
                             appendData(dataAddr, tagQwc);
+                        if (chainFailed)
+                            break;
                         if (irq && tieEnabled)
                             endChain = true;
                         if (endChain)
@@ -1531,6 +1575,10 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                         }
                     }
 
+                    if (!chainCompleted && !chainFailed)
+                        failChain(tagAddr, "DMA chain exceeded the tag limit without END");
+                    chainTransferFailed = chainFailed;
+
                     m_ioRegisters[channelBase + 0x30] = tagAddr;
                     m_ioRegisters[channelBase + 0x40] = asr0;
                     m_ioRegisters[channelBase + 0x50] = asr1;
@@ -1539,7 +1587,7 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     m_ioRegisters[channelBase + 0x00] = chcr;
 
                     // END/QWC=0 has no payload, but must complete and notify the original IRQ handlers.
-                    if (!chainBuf.empty() || chainCompleted)
+                    if (!chainFailed && (!chainBuf.empty() || chainCompleted))
                     {
                         PendingTransfer pt;
                         pt.fromScratchpad = false;
@@ -1571,7 +1619,7 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 
                 const bool autoProcessTransfers =
                     (channelBase == 0x1000A000u) ? (m_gifPacketCallback || m_gifArbiter != nullptr) : true;
-                if (autoProcessTransfers)
+                if (autoProcessTransfers && !chainTransferFailed)
                 {
                     processPendingTransfers();
                 }
@@ -1674,6 +1722,7 @@ void PS2Memory::completeDmacChannel(uint32_t channelBase, uint32_t cause)
 void PS2Memory::processPendingTransfers()
 {
     const bool hadGif = !m_pendingGifTransfers.empty();
+    bool gifTransferFailed = false;
     uint32_t observedGifQwc = 0u;
     for (const auto &transfer : m_pendingGifTransfers)
     {
@@ -1707,9 +1756,17 @@ void PS2Memory::processPendingTransfers()
             try
             {
                 srcPhys = translateAddress(p.srcAddr);
+                if (srcPhys >= (p.fromScratchpad ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE))
+                {
+                    throw std::runtime_error("DMA source is outside RDRAM/scratchpad");
+                }
             }
-            catch (const std::exception &)
+            catch (const std::exception &error)
             {
+                gifTransferFailed = true;
+                std::cerr << "[DMA GIF] Invalid source address 0x" << std::hex << p.srcAddr
+                          << ": " << error.what() << std::dec
+                          << "; completion IRQ suppressed" << std::endl;
                 continue;
             }
             if (p.fromScratchpad)
@@ -1755,6 +1812,7 @@ void PS2Memory::processPendingTransfers()
     m_pendingGifTransfers.clear();
 
     const bool hadVif0 = !m_pendingVif0Transfers.empty();
+    bool vif0TransferFailed = false;
     for (auto &p : m_pendingVif0Transfers)
     {
         if (!p.chainData.empty())
@@ -1769,9 +1827,17 @@ void PS2Memory::processPendingTransfers()
             try
             {
                 srcPhys = translateAddress(p.srcAddr);
+                if (srcPhys >= (p.fromScratchpad ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE))
+                {
+                    throw std::runtime_error("DMA source is outside RDRAM/scratchpad");
+                }
             }
-            catch (const std::exception &)
+            catch (const std::exception &error)
             {
+                vif0TransferFailed = true;
+                std::cerr << "[DMA VIF0] Invalid source address 0x" << std::hex << p.srcAddr
+                          << ": " << error.what() << std::dec
+                          << "; completion IRQ suppressed" << std::endl;
                 continue;
             }
             if (p.fromScratchpad)
@@ -1813,6 +1879,7 @@ void PS2Memory::processPendingTransfers()
     m_pendingVif0Transfers.clear();
 
     const bool hadVif1 = !m_pendingVif1Transfers.empty();
+    bool vif1TransferFailed = false;
     for (auto &p : m_pendingVif1Transfers)
     {
         if (!p.chainData.empty())
@@ -1827,9 +1894,17 @@ void PS2Memory::processPendingTransfers()
             try
             {
                 srcPhys = translateAddress(p.srcAddr);
+                if (srcPhys >= (p.fromScratchpad ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE))
+                {
+                    throw std::runtime_error("DMA source is outside RDRAM/scratchpad");
+                }
             }
-            catch (const std::exception &)
+            catch (const std::exception &error)
             {
+                vif1TransferFailed = true;
+                std::cerr << "[DMA VIF1] Invalid source address 0x" << std::hex << p.srcAddr
+                          << ": " << error.what() << std::dec
+                          << "; completion IRQ suppressed" << std::endl;
                 continue;
             }
             if (p.fromScratchpad)
@@ -1893,21 +1968,21 @@ void PS2Memory::processPendingTransfers()
         m_ioRegisters[D_STAT] = dstat;
     };
 
-    if (hadGif)
+    if (hadGif && !gifTransferFailed)
     {
         raiseDStatChannel(2u); // GIF channel
         queueCompletedDmacCause(2u);
         m_ioRegisters[GIF_CHANNEL + 0x00] &= ~0x100u;
         m_ioRegisters[GIF_CHANNEL + 0x20] = 0;
     }
-    if (hadVif0)
+    if (hadVif0 && !vif0TransferFailed)
     {
         raiseDStatChannel(0u); // VIF0 channel
         queueCompletedDmacCause(0u);
         m_ioRegisters[VIF0_CHANNEL + 0x00] &= ~0x100u;
         m_ioRegisters[VIF0_CHANNEL + 0x20] = 0;
     }
-    if (hadVif1)
+    if (hadVif1 && !vif1TransferFailed)
     {
         raiseDStatChannel(1u); // VIF1 channel
         queueCompletedDmacCause(1u);

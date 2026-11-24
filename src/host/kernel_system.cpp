@@ -382,8 +382,12 @@ namespace ps2_syscalls
             }
         }
 
-        // Bootstrap default: avoid hard-failing loops that probe syscall availability.
-        setReturnS32(ctx, 0);
+        setReturnS32(ctx, KE_ERROR);
+        if (runtime->missingFunctionPolicy() == PS2Runtime::MissingFunctionPolicy::Stop)
+        {
+            std::cerr << "  -> Unknown syscall is fatal under MissingFunctionPolicy::Stop." << std::endl;
+            runtime->reportFatalError();
+        }
     }
 
     bool dispatchSyscallOverride(uint32_t syscallNumber, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -406,6 +410,16 @@ namespace ps2_syscalls
         if (!runtime->hasFunction(handler))
         {
             setReturnS32(ctx, KE_ERROR);
+            std::cerr << "  -> Missing EE syscall override handler 0x" << std::hex << handler
+                      << " for syscall 0x" << syscallNumber
+                      << " at PC 0x" << ctx->pc
+                      << " RA 0x" << getRegU32(ctx, 31) << "." << std::dec << std::endl;
+            if (runtime->missingFunctionPolicy() == PS2Runtime::MissingFunctionPolicy::Stop)
+            {
+                std::cerr << "  -> Missing EE syscall override handler is fatal under MissingFunctionPolicy::Stop."
+                          << std::endl;
+                runtime->reportFatalError();
+            }
             return true;
         }
 

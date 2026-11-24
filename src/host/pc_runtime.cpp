@@ -36,6 +36,7 @@ void disneyAudioShutdown();
 #include "runtime/ps2_profile.h"
 #include "runtime/ps2_exp_trace.h"
 #include "../../native/original/graphics/gpu/native_gpu_stats.h"
+#include "../../native/original/iop/runtime/include/ps2_fatal_state.h"
 
 // Experiment 4: called only from the four recompiled VLQI/VSQI sites (see
 // ps2_exp_hooks.h). Reads both address spaces for the record; never writes.
@@ -711,7 +712,16 @@ void PS2Runtime::notifyIopSifTransfer(uint8_t *rdram, const ps2x::iop::SifTransf
 
 void PS2Runtime::advanceIopEeCycles(uint64_t eeCycles) noexcept
 {
+    if (hadFatalError())
+    {
+        requestStop();
+        return;
+    }
     m_iopSubsystem->runEeCycles(eeCycles);
+    if (hadFatalError())
+    {
+        requestStop();
+    }
 }
 
 void PS2Runtime::resetIop()
@@ -1307,13 +1317,35 @@ bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
 
 bool PS2Runtime::registerFunction(uint32_t address, RecompiledFunction func)
 {
-    return replaceFunction(address, func);
+    uint32_t slot = 0u;
+    if (generatedFunctionTableSlot(address, slot))
+    {
+        return replaceFunction(address, func);
+    }
+
+    m_registeredFunctions[address] = func;
+    return true;
+}
+
+void PS2Runtime::registerFunctionRange(uint32_t begin, uint32_t end, RecompiledFunction func)
+{
+    m_registeredFunctionRanges.push_back({begin, end, func});
 }
 
 bool PS2Runtime::hasFunction(uint32_t address) const
 {
     uint32_t slot = 0u;
-    return generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] != nullptr;
+    if ((generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] != nullptr) ||
+        m_registeredFunctions.find(address) != m_registeredFunctions.end())
+    {
+        return true;
+    }
+
+    return std::any_of(m_registeredFunctionRanges.begin(), m_registeredFunctionRanges.end(),
+                       [address](const RegisteredFunctionRange &range)
+                       {
+                           return address >= range.begin && address < range.end;
+                       });
 }
 
 const char *describeGuestBranchKind(PS2Runtime::GuestBranchKind kind)
@@ -1358,7 +1390,21 @@ PS2Runtime::RecompiledFunction PS2Runtime::lookupFunction(uint32_t address)
         }
     }
 
-    std::cerr << "Error: No exact recompiled function for guest PC 0x" << std::hex << address
+    const auto registered = m_registeredFunctions.find(address);
+    if (registered != m_registeredFunctions.end() && registered->second != nullptr)
+    {
+        return registered->second;
+    }
+
+    for (const auto &range : m_registeredFunctionRanges)
+    {
+        if (address >= range.begin && address < range.end && range.function != nullptr)
+        {
+            return range.function;
+        }
+    }
+
+    std::cerr << "Error: No recompiled function for guest PC 0x" << std::hex << address
               << " tableBase=0x" << g_ps2RecompiledFunctionTableBase
               << " tableEnd=0x" << g_ps2RecompiledFunctionTableEnd
               << " codeRegion=" << (m_memory.isCodeAddress(address) ? "yes" : "no")
@@ -1548,7 +1594,7 @@ void PS2Runtime::reportMissingFunction(uint8_t *rdram,
 
     if (policy == MissingFunctionPolicy::Stop)
     {
-        requestStop();
+        reportFatalError();
     }
 }
 
@@ -2544,6 +2590,17 @@ bool PS2Runtime::isStopRequested() const
     return m_stopRequested.load(std::memory_order_relaxed);
 }
 
+void PS2Runtime::reportFatalError() noexcept
+{
+    ps2::runtime::fatalErrorState().store(true, std::memory_order_release);
+    requestStop();
+}
+
+bool PS2Runtime::hadFatalError() const noexcept
+{
+    return ps2::runtime::fatalErrorState().load(std::memory_order_acquire);
+}
+
 EeScheduler &PS2Runtime::eeScheduler()
 {
     return *m_eeScheduler;
@@ -2692,6 +2749,7 @@ void PS2Runtime::HandleIntegerOverflow(R5900Context *ctx)
 void PS2Runtime::run()
 {
     if(DisneyHang::enabled())DisneyHang::ramPointer.store(m_memory.getRDRAM());
+    ps2::runtime::fatalErrorState().store(false, std::memory_order_relaxed);
     m_stopRequested.store(false, std::memory_order_relaxed);
     ps2_stubs::resetSifState();
     resetIop();
@@ -2730,10 +2788,12 @@ void PS2Runtime::run()
         catch (const std::exception &e)
         {
             std::cerr << "Error during program execution: " << e.what() << std::endl;
+            reportFatalError();
         }
         catch (...)
         {
             std::cerr << "Error during program execution: unknown exception" << std::endl;
+            reportFatalError();
         }
         gameThreadFinished.store(true, std::memory_order_release); });
 

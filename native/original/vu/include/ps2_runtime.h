@@ -337,6 +337,7 @@ public:
     bool replaceFunction(uint32_t address, RecompiledFunction func);
     // TODO remove this later need to update all tests
     bool registerFunction(uint32_t address, RecompiledFunction func);
+    void registerFunctionRange(uint32_t begin, uint32_t end, RecompiledFunction func);
     RecompiledFunction lookupFunction(uint32_t address);
     bool hasFunction(uint32_t address) const;
     bool dispatchGuestBranch(uint8_t *rdram,
@@ -390,6 +391,8 @@ public:
 
     void requestStop();
     bool isStopRequested() const;
+    void reportFatalError() noexcept;
+    bool hadFatalError() const noexcept;
 
     EeScheduler &eeScheduler();
     const EeScheduler &eeScheduler() const;
@@ -528,6 +531,14 @@ private:
     mutable std::mutex m_eeKernelStateMutex;
     std::unordered_map<int, std::vector<EeExitHandlerRegistration>> m_eeExitHandlers;
     std::unordered_map<uint32_t, uint32_t> m_eeSyscallOverrides;
+    std::unordered_map<uint32_t, RecompiledFunction> m_registeredFunctions;
+    struct RegisteredFunctionRange
+    {
+        uint32_t begin;
+        uint32_t end;
+        RecompiledFunction function;
+    };
+    std::vector<RegisteredFunctionRange> m_registeredFunctionRanges;
     std::unordered_set<uint32_t> m_eeSyscallMirrorAddresses;
     mutable std::mutex m_guestHeapMutex;
     mutable std::mutex m_asyncCallbackStackMutex;
@@ -540,7 +551,7 @@ private:
     uint32_t m_asyncCallbackStackFloor = 0x01F00000u;
     uint32_t m_asyncCallbackStackTop = PS2_RAM_SIZE;
 
-    std::atomic<uint32_t> m_missingFunctionPolicy{static_cast<uint32_t>(MissingFunctionPolicy::ContinueToTarget)};
+    std::atomic<uint32_t> m_missingFunctionPolicy{static_cast<uint32_t>(MissingFunctionPolicy::Stop)};
     std::atomic<bool> m_missingFunctionReported{false};
     std::atomic<bool> m_stopRequested{false};
     DebugUiCallback m_debugUiInitCallback = nullptr;

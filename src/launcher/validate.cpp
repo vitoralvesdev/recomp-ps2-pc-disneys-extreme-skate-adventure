@@ -13,6 +13,9 @@ namespace {
 
 constexpr const wchar_t* kSerial = L"SLUS-20607";
 constexpr const wchar_t* kBootFile = L"SLUS_206.07";
+constexpr const wchar_t* kBootPath = L"CDROM0:\\SLUS_206.07;1";
+constexpr const wchar_t* kBootSha256 =
+    L"2fe6ce3a08aade170be27ea221137c96aa15083a408d61856f605f1a40f321fc";
 
 std::wstring upperCopy(std::wstring_view text) {
     std::wstring result(text);
@@ -46,8 +49,12 @@ std::wstring valueAfterEquals(std::wstring_view line) {
     return value;
 }
 
+} // namespace
+
 bool sha256IsoEntry(IsoImage& image, const IsoEntry& entry, std::wstring& digest,
                     std::wstring& error) {
+    digest.clear();
+    error.clear();
     BCRYPT_ALG_HANDLE algorithm = nullptr;
     BCRYPT_HASH_HANDLE hash = nullptr;
     std::vector<uint8_t> object;
@@ -78,17 +85,18 @@ bool sha256IsoEntry(IsoImage& image, const IsoEntry& entry, std::wstring& digest
         std::vector<uint8_t> buffer(1 << 20);
         uint64_t offset = 0;
         while (offset < entry.size) {
-            const size_t chunk = static_cast<size_t>(std::min<uint64_t>(buffer.size(), entry.size - offset));
+            const size_t chunk =
+                static_cast<size_t>(std::min<uint64_t>(buffer.size(), entry.size - offset));
             if (!image.readRegion(entry, offset, buffer.data(), chunk, error)) break;
             if (BCryptHashData(hash, buffer.data(), static_cast<ULONG>(chunk), 0) < 0) {
-                error = L"Falha ao calcular o hash do ELF.";
+                error = L"Falha ao calcular o hash do arquivo.";
                 break;
             }
             offset += chunk;
         }
         if (!error.empty()) break;
         if (BCryptFinishHash(hash, result.data(), resultSize, 0) < 0) {
-            error = L"Falha ao concluir o hash do ELF.";
+            error = L"Falha ao concluir o hash do arquivo.";
             break;
         }
         static const wchar_t digits[] = L"0123456789abcdef";
@@ -104,9 +112,8 @@ bool sha256IsoEntry(IsoImage& image, const IsoEntry& entry, std::wstring& digest
     return ok;
 }
 
-} // namespace
-
 const wchar_t* expectedSerial() { return kSerial; }
+const wchar_t* expectedBootSha256() { return kBootSha256; }
 
 std::wstring IsoValidation::summary() const {
     if (!ok) {
@@ -150,25 +157,35 @@ bool validateIso(IsoImage& image, IsoValidation& validation) {
         validation.errors.push_back(L"Não foi possível ler SYSTEM.CNF: " + error);
         return false;
     }
+    if (cnfBytes.empty()) {
+        validation.errors.push_back(L"SYSTEM.CNF está vazio; a imagem está incompleta.");
+        return false;
+    }
     const std::wstring cnfText = toWideLenient(std::string(cnfBytes.begin(), cnfBytes.end()));
+    bool bootSeen = false;
+    bool vmodeSeen = false;
     for (const std::wstring& rawLine : splitLines(cnfText)) {
         const std::wstring line = trim(rawLine);
         if (line.empty()) continue;
         const std::wstring key = upperCopy(trim(line.substr(0, line.find(L'='))));
         if (key == L"BOOT2") {
+            if (bootSeen) validation.errors.push_back(L"SYSTEM.CNF declara BOOT2 mais de uma vez.");
+            bootSeen = true;
             validation.bootPath = valueAfterEquals(line);
+        } else if (key == L"VMODE") {
+            if (vmodeSeen) validation.errors.push_back(L"SYSTEM.CNF declara VMODE mais de uma vez.");
+            vmodeSeen = true;
+            validation.vmode = valueAfterEquals(line);
         } else if (key == L"VER") {
             validation.version = valueAfterEquals(line);
-        } else if (key == L"VMODE") {
-            validation.vmode = valueAfterEquals(line);
         }
     }
     if (validation.bootPath.empty()) {
         validation.errors.push_back(L"SYSTEM.CNF não declara BOOT2; a imagem está incompleta.");
-    } else if (validation.bootPath.find(kBootFile) == std::wstring::npos) {
+    } else if (upperCopy(validation.bootPath) != kBootPath) {
         validation.errors.push_back(
-            L"Esta imagem não é a versão esperada. BOOT2 aponta para " +
-            validation.bootPath + L", mas o projeto exige " + kBootFile + L" (NTSC-U).");
+            L"Esta imagem não é a versão esperada. BOOT2 deve ser exatamente " +
+            std::wstring(kBootPath) + L", mas SYSTEM.CNF declara " + validation.bootPath + L".");
     }
     if (!validation.vmode.empty() && upperCopy(validation.vmode) != L"NTSC") {
         validation.errors.push_back(
@@ -183,8 +200,10 @@ bool validateIso(IsoImage& image, IsoValidation& validation) {
         validation.errors.push_back(L"O executável " + std::wstring(kBootFile) +
                                     L" não foi encontrado na imagem.");
     } else {
-        if (boot->size < 1024 * 1024) {
-            validation.errors.push_back(L"O executável do jogo tem um tamanho inesperado.");
+        if (boot->size == 0) {
+            validation.errors.push_back(L"O executável do jogo está vazio.");
+        } else if (boot->size < 1024 * 1024) {
+            validation.errors.push_back(L"O executável do jogo está truncado ou corrompido.");
         }
         std::array<uint8_t, 64> header{};
         if (!image.readRegion(*boot, 0, header.data(), header.size(), error)) {
@@ -208,7 +227,12 @@ bool validateIso(IsoImage& image, IsoValidation& validation) {
         }
         std::wstring hashError;
         if (!sha256IsoEntry(image, *boot, validation.bootSha256, hashError)) {
-            validation.warnings.push_back(L"Não foi possível calcular o hash do ELF: " + hashError);
+            validation.errors.push_back(L"Não foi possível calcular o hash do ELF: " + hashError);
+        } else if (!iequals(validation.bootSha256, kBootSha256)) {
+            validation.errors.push_back(
+                L"O SHA-256 do executável não corresponde à revisão NTSC-U esperada. "
+                L"Esperado: " + std::wstring(kBootSha256) + L"; encontrado: " +
+                validation.bootSha256 + L".");
         }
     }
 
@@ -232,6 +256,8 @@ bool validateIso(IsoImage& image, IsoValidation& validation) {
         if (!entry) {
             validation.errors.push_back(L"Arquivo obrigatório ausente na imagem: " +
                                         std::wstring(file.path));
+        } else if (entry->size == 0) {
+            validation.errors.push_back(L"Arquivo vazio na imagem: " + std::wstring(file.path));
         } else if (entry->size < file.minimumBytes) {
             validation.errors.push_back(L"Arquivo truncado na imagem: " +
                                         std::wstring(file.path));

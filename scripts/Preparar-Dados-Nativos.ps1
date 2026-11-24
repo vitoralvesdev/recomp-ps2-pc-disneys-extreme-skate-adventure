@@ -55,8 +55,13 @@ $spawn=@($values[0],$values[1],-$values[2],([Math]::PI-$values[3])) | ForEach-Ob
 $oldDotnetHome=$env:DOTNET_CLI_HOME
 try {
     $env:DOTNET_CLI_HOME=Join-Path $BuildDir 'dotnet-home'
+    $converterRoot=Join-Path $BuildDir 'col8-converter'
+    $converterSource=Join-Path $converterRoot 'source'
+    $converterOutput=Join-Path $converterRoot 'output'
+    New-Item -ItemType Directory -Force -Path $converterSource,$converterOutput | Out-Null
+    Copy-Item -Path (Join-Path $ConverterDir '*.cs'),(Join-Path $ConverterDir 'Col8Converter.csproj'),(Join-Path $ConverterDir 'NuGet.Config') -Destination $converterSource -Force
     Write-DisneyProgress 65 'Compilando o conversor de colisoes COL v8...'
-    & dotnet build $ConverterDir\Col8Converter.csproj -c Release *> (Join-Path $AnalysisDir 'col8-build.log')
+    & dotnet build $converterSource\Col8Converter.csproj -c Release --output $converterOutput *> (Join-Path $AnalysisDir 'col8-build.log')
     if($LASTEXITCODE -ne 0){throw 'Falha ao compilar conversor COL v8; requer SDK .NET 9'}
     $collisionSources=Get-ChildItem -LiteralPath $source -Recurse -File -Filter '*.col.ps2' | Sort-Object FullName
     if(-not $collisionSources){throw 'Nenhum arquivo COL de colisao foi encontrado'}
@@ -67,7 +72,7 @@ try {
         $levelName=[IO.Path]::GetFileNameWithoutExtension([IO.Path]::GetFileNameWithoutExtension($collisionSource.Name))
         $destination=Join-Path (Join-Path $native 'collision') (Join-Path $relativeDirectory "$levelName.dscollision")
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-        & dotnet "$ConverterDir\bin\Release\net9.0\Col8Converter.dll" $collisionSource.FullName $destination *>> $conversionLog
+        & dotnet "$converterOutput\Col8Converter.dll" $collisionSource.FullName $destination *>> $conversionLog
         if($LASTEXITCODE -ne 0){throw "Falha ao converter colisao: $($collisionSource.FullName). Confira $conversionLog"}
         ++$converted
         if($converted % 10 -eq 0){Write-DisneyProgress (70 + [Math]::Min(20,[int](70*$converted/$collisionSources.Count))) "Colisoes convertidas: $converted/$($collisionSources.Count)"}

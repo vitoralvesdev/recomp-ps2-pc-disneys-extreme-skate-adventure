@@ -25,6 +25,8 @@ Manifestos: analysis/music-recovery-2026-10-25.json e analysis/audio-asset-insta
 
 Abra Disney's Extreme Skate Adventure.exe na pasta principal. O runtime existente carrega o catálogo ampliado automaticamente; não foi adicionada biblioteca ao jogo.
 
-Para reconstruir os WAVs, use scripts/Recuperar-Trilha-ISO.ps1. O conversor offline utiliza o compilador e o CMake já instalados. Fontes em scripts/music-recovery/. Se reinstalar o catálogo antigo com Instalar-Audios-Originais.py, execute depois a recuperação da trilha.
+Para reconstruir os WAVs, execute primeiro `scripts/Instalar-Audios-Originais.py` e depois `scripts/Recuperar-Trilha-ISO.ps1`. O conversor offline utiliza o compilador e o CMake já instalados. Fontes em `scripts/music-recovery/`. O fluxo atual não exige pacotes externos.
 
 Os WAVs novos estão em assets/native/audio/files, nomeados por SHA-256; MUSIC.HED, MUSIC.WAD, o ELF original e os saves não foram modificados. Não há músicas faltantes no manifesto. Áudio de vídeos, reverberação completa e percepção de cada faixa durante partidas inteiras continuam sem certificação.
+
+Atualização de 24/11/2026: o conversor passou a gravar em `output/pcm`, o mesmo diretório lido pelo instalador. O fluxo completo foi repetido em pasta isolada e produziu 1.285 entradas (393 efeitos, 855 streams e 37 músicas), sem erros de conversão ou arquivos ausentes; a repetição validou os hashes sem duplicar entradas.

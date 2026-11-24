@@ -1,9 +1,11 @@
 
 # Converted-data native integration. This target has no legacy source, guest
 # CPU, console-memory context, original-code loader or PS2 runtime dependency.
-set(DISNEY_RAYLIB_ROOT "C:/Users/vitor/OneDrive/Documentos/ChatGPT/REA/deps-ps2" CACHE PATH "Existing raylib source/build directory")
-if(NOT EXISTS "${DISNEY_RAYLIB_ROOT}/raylib-build/raylib/Release/raylib.lib")
-    message(FATAL_ERROR "Set DISNEY_RAYLIB_ROOT to an existing native raylib 5.5 build")
+set(DISNEY_RAYLIB_ROOT "" CACHE PATH "Root containing raylib-src and raylib-build")
+if(NOT DISNEY_RAYLIB_ROOT OR
+   NOT EXISTS "${DISNEY_RAYLIB_ROOT}/raylib-build/raylib/Release/raylib.lib" OR
+   NOT EXISTS "${DISNEY_RAYLIB_ROOT}/raylib-src/src/raylib.h")
+    message(FATAL_ERROR "Set DISNEY_RAYLIB_ROOT to an existing native raylib 5.5 source/build directory")
 endif()
 add_library(disney_native_raylib STATIC IMPORTED)
 set_target_properties(disney_native_raylib PROPERTIES

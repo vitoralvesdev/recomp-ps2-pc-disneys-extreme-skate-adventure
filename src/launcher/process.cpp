@@ -84,7 +84,7 @@ bool runProcess(const std::wstring& commandLine, const fs::path& workingDirector
 
     const BOOL started = CreateProcessW(
         nullptr, mutableCommand.data(), nullptr, nullptr, TRUE,
-        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr,
+        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, nullptr,
         mutableDirectory.empty() ? nullptr : mutableDirectory.c_str(), &startup, &process);
     if (!started) {
         error = L"Não foi possível iniciar o processo: " +
@@ -98,9 +98,31 @@ bool runProcess(const std::wstring& commandLine, const fs::path& workingDirector
     writePipe = nullptr;
     if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
 
+    auto failStartup = [&](const std::wstring& message) {
+        TerminateProcess(process.hProcess, 1);
+        WaitForSingleObject(process.hProcess, 5000);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        CloseHandle(readPipe);
+        error = message;
+        return false;
+    };
+
     JobCloser job;
     job.job = createKillOnCloseJob();
-    if (job.job) AssignProcessToJobObject(job.job, process.hProcess);
+    if (!job.job) {
+        return failStartup(L"Não foi possível criar o Job Object do processo: " +
+                           windowsErrorMessage(GetLastError()));
+    }
+    if (!AssignProcessToJobObject(job.job, process.hProcess)) {
+        return failStartup(L"Não foi possível associar o processo ao Job Object: " +
+                           windowsErrorMessage(GetLastError()));
+    }
+    if (cancel.cancelled()) return failStartup(L"Operação cancelada.");
+    if (ResumeThread(process.hThread) == static_cast<DWORD>(-1)) {
+        return failStartup(L"Não foi possível retomar o processo: " +
+                           windowsErrorMessage(GetLastError()));
+    }
 
     std::string pending;
     char buffer[8192];
