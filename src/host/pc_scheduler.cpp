@@ -1271,6 +1271,10 @@ int EeScheduler::addIrqHandler(bool dmac,
                                uint32_t sp)
 {
     assertExecutor();
+    if (cause >= 32u || handler == 0u || !m_runtime.hasFunction(handler))
+    {
+        return KE_ERROR;
+    }
     auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;
     int &nextId = dmac ? m_nextDmacHandlerId : m_nextIntcHandlerId;
     const int id = allocatePositiveId(nextId, handlers);
@@ -1296,12 +1300,17 @@ int EeScheduler::addIrqHandler(bool dmac,
 int EeScheduler::removeIrqHandler(bool dmac, uint32_t cause, int id)
 {
     assertExecutor();
+    if (cause >= 32u)
+    {
+        return KE_ERROR;
+    }
     auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;
     auto it = handlers.find(id);
-    if (it != handlers.end() && it->second.cause == cause)
+    if (it == handlers.end() || it->second.cause != cause)
     {
-        handlers.erase(it);
+        return KE_ERROR;
     }
+    handlers.erase(it);
     return KE_OK;
 }
 
@@ -1310,27 +1319,29 @@ int EeScheduler::setIrqHandlerEnabled(bool dmac, int id, bool enabled)
     assertExecutor();
     auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;
     auto it = handlers.find(id);
-    if (it != handlers.end())
+    if (it == handlers.end())
     {
-        it->second.enabled = enabled;
+        return KE_ERROR;
     }
+    it->second.enabled = enabled;
     return KE_OK;
 }
 
 int EeScheduler::setIrqCauseEnabled(bool dmac, uint32_t cause, bool enabled)
 {
     assertExecutor();
-    if (cause < 32u)
+    if (cause >= 32u)
     {
-        uint32_t &mask = dmac ? m_enabledDmacMask : m_enabledIntcMask;
-        if (enabled)
-        {
-            mask |= 1u << cause;
-        }
-        else
-        {
-            mask &= ~(1u << cause);
-        }
+        return KE_ERROR;
+    }
+    uint32_t &mask = dmac ? m_enabledDmacMask : m_enabledIntcMask;
+    if (enabled)
+    {
+        mask |= 1u << cause;
+    }
+    else
+    {
+        mask &= ~(1u << cause);
     }
     return KE_OK;
 }

@@ -369,6 +369,7 @@ bool audioCatalogComplete(const Layout& layout, std::wstring& detail) {
     }
     std::string line;
     size_t count = 0;
+    size_t musicCount = 0;
     while (std::getline(input, line)) {
         if (count == 0 && line.starts_with("\xef\xbb\xbf")) line.erase(0, 3);
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -382,6 +383,8 @@ bool audioCatalogComplete(const Layout& layout, std::wstring& detail) {
             detail = L"catalog.tsv contém uma linha inválida.";
             return false;
         }
+        const std::string key = line.substr(0, firstTab);
+        if (key.starts_with("music/")) ++musicCount;
         const std::string relative = line.substr(firstTab + 1, secondTab - firstTab - 1);
         if (!relative.starts_with("assets/native/audio/")) {
             detail = L"catalog.tsv contém um caminho de áudio fora da pasta de assets.";
@@ -411,6 +414,11 @@ bool audioCatalogComplete(const Layout& layout, std::wstring& detail) {
     }
     if (count == 0) {
         detail = L"catalog.tsv está vazio.";
+        return false;
+    }
+    if (musicCount != 37) {
+        detail = L"Catálogo de áudio incompleto: " + std::to_wstring(musicCount) +
+                 L" de 37 entradas de música.";
         return false;
     }
     detail = std::to_wstring(count) + L" entradas; todos os arquivos referenciados estão presentes";
@@ -562,6 +570,10 @@ PackageReport inspectPackageImpl(const Layout& layout, bool requireManifest,
 
     report.ready = report.errorCount == 0;
     return report;
+}
+
+PackageReport inspectPackageForLaunch(const Layout& layout, std::wstring_view bootReference) {
+    return inspectPackageImpl(layout, false, bootReference);
 }
 
 PackageReport inspectPackage(const Layout& layout, std::wstring_view bootReference) {

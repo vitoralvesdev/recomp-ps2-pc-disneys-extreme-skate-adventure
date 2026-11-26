@@ -27,6 +27,177 @@ int overallPercent(InstallStep step, int stepPercent) {
     return std::clamp(result, 0, 100);
 }
 
+fs::path absoluteNormalized(const fs::path& path) {
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(path, ec);
+    return (ec ? path : absolute).lexically_normal();
+}
+
+fs::path canonicalNormalized(const fs::path& path) {
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(path, ec);
+    if (ec) return path.lexically_normal();
+    const fs::path canonical = fs::weakly_canonical(absolute, ec);
+    return (ec ? absolute : canonical).lexically_normal();
+}
+
+bool componentsWithin(const fs::path& child, const fs::path& parent) {
+    auto childPart = child.begin();
+    auto parentPart = parent.begin();
+    for (; parentPart != parent.end(); ++parentPart, ++childPart) {
+        if (childPart == child.end() || !iequals(childPart->wstring(), parentPart->wstring())) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool samePath(const fs::path& left, const fs::path& right) {
+    return iequals(canonicalNormalized(left).wstring(), canonicalNormalized(right).wstring());
+}
+
+bool canonicalWithin(const fs::path& child, const fs::path& parent) {
+    return componentsWithin(canonicalNormalized(child), canonicalNormalized(parent));
+}
+
+bool sameEntryPath(const fs::path& left, const fs::path& right) {
+    return iequals(absoluteNormalized(left).wstring(), absoluteNormalized(right).wstring());
+}
+
+bool entryWithin(const fs::path& child, const fs::path& parent) {
+    return componentsWithin(absoluteNormalized(child), absoluteNormalized(parent));
+}
+
+bool hasReparsePoint(const fs::path& path) {
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+bool clearReadOnly(const fs::path& path, DWORD attributes, std::wstring& error) {
+    if ((attributes & FILE_ATTRIBUTE_READONLY) == 0) return true;
+    if (SetFileAttributesW(path.c_str(), attributes & ~FILE_ATTRIBUTE_READONLY)) return true;
+    error = L"Não foi possível remover o atributo somente leitura de " + path.wstring() +
+            L": " + windowsErrorMessage(GetLastError());
+    return false;
+}
+
+bool removeWithRetry(const fs::path& path, bool directory, const wchar_t* kind,
+                     std::wstring& error) {
+    DWORD status = ERROR_SUCCESS;
+    for (int attempt = 0; attempt < 30; ++attempt) {
+        const BOOL removed = directory ? RemoveDirectoryW(path.c_str()) : DeleteFileW(path.c_str());
+        if (removed) return true;
+        status = GetLastError();
+        if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND) return true;
+        if (status != ERROR_ACCESS_DENIED && status != ERROR_SHARING_VIOLATION) break;
+        if (attempt + 1 < 30) Sleep(100);
+    }
+    error = std::wstring(L"Não foi possível remover ") + kind + L" " + path.wstring() +
+            L": " + windowsErrorMessage(status);
+    return false;
+}
+
+bool removeEntry(const fs::path& path, const fs::path* preservedDirectory,
+                 std::wstring& error) {
+    if (preservedDirectory && sameEntryPath(path, *preservedDirectory)) return true;
+
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const DWORD status = GetLastError();
+        if (status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND) return true;
+        error = L"Não foi possível inspecionar " + path.wstring() + L": " +
+                windowsErrorMessage(status);
+        return false;
+    }
+
+    const bool keepAncestor =
+        preservedDirectory && entryWithin(*preservedDirectory, path) &&
+        !sameEntryPath(path, *preservedDirectory);
+    if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        if (keepAncestor) {
+            error = L"Não é seguro remover " + path.wstring() +
+                    L" porque ele contém um link para a pasta de saves.";
+            return false;
+        }
+        if (!clearReadOnly(path, attributes, error)) return false;
+        return removeWithRetry(path, (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0, L"o link",
+                               error);
+    }
+
+    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        if (!clearReadOnly(path, attributes, error)) return false;
+        std::vector<fs::path> children;
+        std::error_code ec;
+        fs::directory_iterator it(path, fs::directory_options::skip_permission_denied, ec);
+        const fs::directory_iterator end;
+        while (!ec && it != end) {
+            children.push_back(it->path());
+            it.increment(ec);
+        }
+        if (ec) {
+            error = L"Não foi possível listar " + path.wstring() + L": " +
+                    toWide(ec.message());
+            return false;
+        }
+        for (const fs::path& child : children) {
+            if (!removeEntry(child, keepAncestor ? preservedDirectory : nullptr, error)) {
+                return false;
+            }
+        }
+        if (keepAncestor) return true;
+        return removeWithRetry(path, true, L"a pasta", error);
+    }
+
+    if (!clearReadOnly(path, attributes, error)) return false;
+    return removeWithRetry(path, false, L"o arquivo", error);
+}
+
+bool validateUninstallTarget(const Layout& layout, const fs::path& target,
+                             const wchar_t* label, bool allowNestedSaves,
+                             std::wstring& error) {
+    const auto reject = [&](const std::wstring& reason) {
+        error = std::wstring(L"Não é seguro desinstalar ") + label + L": " + reason;
+        return false;
+    };
+    if (target.empty() || layout.dataRoot.empty()) return reject(L"caminho de dados inválido.");
+    if (samePath(target, layout.dataRoot) || !canonicalWithin(target, layout.dataRoot)) {
+        return reject(L"o caminho está fora da raiz de dados ou representa a raiz inteira.");
+    }
+    if (!layout.exeDir.empty() &&
+        (samePath(target, layout.exeDir) || canonicalWithin(layout.exeDir, target))) {
+        return reject(L"o caminho contém a pasta do launcher.");
+    }
+    if (!layout.exePath.empty() &&
+        (samePath(target, layout.exePath) || canonicalWithin(layout.exePath, target))) {
+        return reject(L"o caminho contém o executável do launcher.");
+    }
+    for (const fs::path& protectedDirectory :
+         {layout.runtimeDir, layout.logsDir, layout.stateDir}) {
+        if (protectedDirectory.empty()) continue;
+        if (samePath(target, protectedDirectory) ||
+            canonicalWithin(target, protectedDirectory) ||
+            canonicalWithin(protectedDirectory, target)) {
+            return reject(L"o caminho se sobrepõe a runtime, logs ou ao estado do launcher.");
+        }
+    }
+    if (!layout.savesDir.empty()) {
+        if (samePath(target, layout.savesDir) || canonicalWithin(target, layout.savesDir)) {
+            return reject(L"o caminho está dentro da pasta de saves.");
+        }
+        if (canonicalWithin(layout.savesDir, target) &&
+            !(allowNestedSaves && layout.portable)) {
+            return reject(L"o caminho contém a pasta de saves.");
+        }
+    }
+    if (!layout.configPath.empty() &&
+        (samePath(target, layout.configPath) || canonicalWithin(layout.configPath, target))) {
+        return reject(L"o caminho contém a configuração do launcher.");
+    }
+    if (hasReparsePoint(target)) return reject(L"a raiz do caminho é um link ou junction.");
+    return true;
+}
+
 std::string installStateText(const IsoValidation& validation, const fs::path& iso,
                              const std::wstring& launcherVersion) {
     std::ostringstream out;
@@ -56,7 +227,8 @@ void emit(std::function<void(const InstallEvent&)> const& onEvent, InstallStep s
 bool runCommand(const std::wstring& command, const fs::path& sourceRoot,
                 const CancelToken& cancel,
                 const std::function<void(const InstallEvent&)>& onEvent, InstallStep step,
-                int percentStart, int percentEnd, std::wstring& error) {
+                int percentStart, int percentEnd, const fs::path& temporaryDirectory,
+                std::wstring& error) {
     logInfo(L"Executando: " + command);
     int percent = percentStart;
     DWORD exitCode = 0;
@@ -83,7 +255,7 @@ bool runCommand(const std::wstring& command, const fs::path& sourceRoot,
             if (!hasProgress) event.logLine = wide;
             if (onEvent) onEvent(event);
         },
-        cancel, exitCode, error);
+        cancel, exitCode, error, temporaryDirectory);
     if (!ran) return false;
     if (exitCode != 0) {
         error = L"O comando terminou com código " + std::to_wstring(exitCode) + L".";
@@ -97,22 +269,24 @@ bool runCommand(const std::wstring& command, const fs::path& sourceRoot,
 bool runPowerShell(const fs::path& script, const std::vector<std::wstring>& arguments,
                    const fs::path& sourceRoot, const CancelToken& cancel,
                    const std::function<void(const InstallEvent&)>& onEvent, InstallStep step,
-                   int percentStart, int percentEnd, std::wstring& error) {
+                   int percentStart, int percentEnd, const fs::path& temporaryDirectory,
+                   std::wstring& error) {
     std::vector<std::wstring> commandArguments{L"-NoProfile", L"-ExecutionPolicy", L"Bypass",
                                                L"-File", script.wstring()};
     commandArguments.insert(commandArguments.end(), arguments.begin(), arguments.end());
     return runCommand(quoteExecutableCommand(L"powershell.exe", commandArguments), sourceRoot,
-                      cancel, onEvent, step, percentStart, percentEnd, error);
+                      cancel, onEvent, step, percentStart, percentEnd, temporaryDirectory, error);
 }
 
 bool runPython(const fs::path& script, const std::vector<std::wstring>& arguments,
                const fs::path& sourceRoot, const CancelToken& cancel,
                const std::function<void(const InstallEvent&)>& onEvent, InstallStep step,
-               int percentStart, int percentEnd, std::wstring& error) {
+               int percentStart, int percentEnd, const fs::path& temporaryDirectory,
+               std::wstring& error) {
     std::vector<std::wstring> commandArguments{script.wstring()};
     commandArguments.insert(commandArguments.end(), arguments.begin(), arguments.end());
     return runCommand(quoteExecutableCommand(L"python", commandArguments), sourceRoot, cancel,
-                      onEvent, step, percentStart, percentEnd, error);
+                      onEvent, step, percentStart, percentEnd, temporaryDirectory, error);
 }
 
 bool isInputReady(const IsoEntry& entry) { return !entry.directory; }
@@ -500,8 +674,10 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
     }
 
     const fs::path analysisDir = layout.logsDir / L"preparation";
+    const fs::path installTempDir = analysisDir / L"install-temp";
     const fs::path buildDir = layout.dataRoot / L"build" / L"setup";
     if (!ensureDirectory(analysisDir, result.message) ||
+        !ensureDirectory(installTempDir, result.message) ||
         !ensureDirectory(buildDir, result.message) ||
         !ensureDirectory(layout.assetsDir, result.message)) {
         emit(onEvent, InstallStep::Assets, StepState::Failed, 0, result.message);
@@ -538,7 +714,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                             L"-BuildDir", buildDir.wstring(), L"-ToolsDir",
                             toolsDirectory.wstring()},
                            sourceRoot, cancel, onEvent, InstallStep::Assets, 2, 55,
-                           scriptError)) {
+                           installTempDir, scriptError)) {
             if (cancel.cancelled()) {
                 result.cancelled = true;
                 result.message = L"Preparação dos assets cancelada.";
@@ -554,7 +730,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
         if (!runPython(sourceRoot / L"scripts" / L"Instalar-Audios-Originais.py",
                        {layout.dataRoot.wstring(), L"--game-dir", layout.gameDir.wstring()},
                        sourceRoot, cancel, onEvent, InstallStep::Assets, 58, 85,
-                       scriptError)) {
+                       installTempDir, scriptError)) {
             if (cancel.cancelled()) {
                 result.cancelled = true;
                 result.message = L"Preparação do áudio cancelada.";
@@ -572,7 +748,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                             layout.gameDir.wstring(), L"-BuildDir",
                             (buildDir / L"music-recovery").wstring()},
                            sourceRoot, cancel, onEvent, InstallStep::Assets, 87, 100,
-                           scriptError)) {
+                           installTempDir, scriptError)) {
             if (cancel.cancelled()) {
                 result.cancelled = true;
                 result.message = L"Recuperação das trilhas cancelada.";
@@ -629,7 +805,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                             L"-BuildDir", buildDir.wstring(), L"-AnalysisDir",
                             analysisDir.wstring(), L"-PrepareGuestEntries"},
                            sourceRoot, cancel, onEvent, InstallStep::Runtime, 2, 60,
-                           scriptError)) {
+                           installTempDir, scriptError)) {
             if (cancel.cancelled()) {
                 result.cancelled = true;
                 result.message = L"Recompilação cancelada.";
@@ -647,7 +823,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                             L"-BuildDir", buildDir.wstring(), L"-RuntimeOutputDir",
                             layout.runtimeDir.wstring(), L"-AnalysisDir", analysisDir.wstring()},
                            sourceRoot, cancel, onEvent, InstallStep::Runtime, 62, 100,
-                           scriptError)) {
+                           installTempDir, scriptError)) {
             if (cancel.cancelled()) {
                 result.cancelled = true;
                 result.message = L"Compilação cancelada.";
@@ -706,6 +882,59 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
     emit(onEvent, InstallStep::Verify, StepState::Done, 100, result.message);
     logInfo(L"Instalação concluída com sucesso.");
     return result;
+}
+
+bool uninstallGame(const Layout& layout, std::wstring& error) {
+    error.clear();
+    if (layout.portable) {
+        if (!sameEntryPath(layout.savesDir, layout.gameDir / L"mc0") ||
+            !canonicalWithin(layout.savesDir, layout.gameDir)) {
+            error = L"Não é seguro desinstalar: a pasta de saves do modo portátil não está "
+                    L"dentro da pasta do jogo.";
+            return false;
+        }
+    }
+
+    const fs::path buildSetup = layout.dataRoot / L"build" / L"setup";
+    const std::vector<fs::path> targets{layout.gameDir, layout.assetsDir, buildSetup};
+    const wchar_t* labels[]{L"os dados do jogo", L"os assets gerados", L"os intermediários"};
+    for (size_t i = 0; i < targets.size(); ++i) {
+        if (!validateUninstallTarget(layout, targets[i], labels[i], i == 0, error)) {
+            return false;
+        }
+        for (size_t j = 0; j < i; ++j) {
+            if (samePath(targets[i], targets[j]) ||
+                canonicalWithin(targets[i], targets[j]) ||
+                canonicalWithin(targets[j], targets[i])) {
+                error = L"Não é seguro desinstalar: os caminhos de dados e assets se "
+                        L"sobrepõem.";
+                return false;
+            }
+        }
+    }
+
+    const fs::path* preservedSaves = layout.portable ? &layout.savesDir : nullptr;
+    if (!removeEntry(layout.gameDir, preservedSaves, error) ||
+        !removeEntry(layout.assetsDir, nullptr, error) ||
+        !removeEntry(buildSetup, nullptr, error)) {
+        return false;
+    }
+
+    if (layout.portable) {
+        if (!ensureDirectory(layout.gameDir, error) ||
+            !ensureDirectory(layout.savesDir, error) ||
+            !ensureDirectory(layout.assetsDir / L"native", error)) {
+            return false;
+        }
+    } else if (!ensureDirectory(layout.savesDir, error)) {
+        return false;
+    }
+
+    if (!removeEntry(layout.stateDir / L"package-manifest.sha256", nullptr, error) ||
+        !removeEntry(layout.installStatePath(), nullptr, error)) {
+        return false;
+    }
+    return true;
 }
 
 } // namespace ds

@@ -6,8 +6,8 @@ IDR_COVER_IMAGE RCDATA "cover.jpg"
 1 RT_MANIFEST "launcher.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,3,0,0
- PRODUCTVERSION 0,3,0,0
+ FILEVERSION 0,4,0,0
+ PRODUCTVERSION 0,4,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -24,12 +24,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "HighSky REC"
             VALUE "FileDescription", "Disney's Extreme Skate Adventure - Launcher nativo"
-            VALUE "FileVersion", "0.3.0.0"
+            VALUE "FileVersion", "0.4.0.0"
             VALUE "InternalName", "DisneySkateLauncher"
             VALUE "LegalCopyright", "Projeto nao oficial. Personagens e marcas pertencem aos titulares."
             VALUE "OriginalFilename", "Disney's Extreme Skate Adventure.exe"
             VALUE "ProductName", "Disney's Extreme Skate Adventure"
-            VALUE "ProductVersion", "0.3.0.0"
+            VALUE "ProductVersion", "0.4.0.0"
         END
     END
     BLOCK "VarFileInfo"

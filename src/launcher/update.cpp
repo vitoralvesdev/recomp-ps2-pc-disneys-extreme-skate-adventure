@@ -22,11 +22,7 @@ constexpr wchar_t kDownloadHost[] = L"github.com";
 constexpr std::wstring_view kReleasePathPrefix =
     L"/" DISNEY_LAUNCHER_REPOSITORY_OWNER L"/" DISNEY_LAUNCHER_REPOSITORY_NAME
     L"/releases/download/";
-constexpr std::wstring_view kInstallerName =
-    L"DisneySkateSetup-" DISNEY_LAUNCHER_VERSION_STRING L".exe";
-constexpr std::wstring_view kInstallerSha256 =
-    L"67b83ccd5a4b663830c045f82ac984755345ab063ef9321eafeeb411976fb2c5";
-constexpr uint64_t kInstallerSize = 29762285ULL;
+constexpr uint64_t kMaximumInstallerSize = 512ULL * 1024 * 1024;
 constexpr std::wstring_view kRedirectHosts[] = {
     L"objects.githubusercontent.com", L"github-releases.githubusercontent.com",
     L"release-assets.githubusercontent.com"};
@@ -212,7 +208,8 @@ bool isReleaseTagCharacter(wchar_t ch) {
 }
 
 bool parseUrl(const std::wstring& url, URL_COMPONENTS& components, std::wstring& host,
-              std::wstring& path, bool allowRedirect, std::wstring& error) {
+              std::wstring& path, bool allowRedirect, std::wstring_view expectedTag,
+              std::wstring_view expectedName, std::wstring& error) {
     std::memset(&components, 0, sizeof(components));
     components.dwStructSize = sizeof(components);
     components.dwHostNameLength = static_cast<DWORD>(-1);
@@ -262,21 +259,22 @@ bool parseUrl(const std::wstring& url, URL_COMPONENTS& components, std::wstring&
         }
         return true;
     }
-    if (path.size() <= kReleasePathPrefix.size() + kInstallerName.size() + 1 ||
+    if (expectedTag.empty() || expectedName.empty() ||
+        path.size() <= kReleasePathPrefix.size() + expectedTag.size() + expectedName.size() + 2 ||
         path.compare(0, kReleasePathPrefix.size(), kReleasePathPrefix) != 0) {
         error = L"O instalador não pertence ao repositório oficial.";
         return false;
     }
-    const size_t assetOffset = path.size() - kInstallerName.size();
+    const size_t assetOffset = path.size() - expectedName.size();
     if (path[assetOffset - 1] != L'/' ||
-        path.compare(assetOffset, kInstallerName.size(), kInstallerName) != 0) {
+        path.compare(assetOffset, expectedName.size(), expectedName) != 0) {
         error = L"O nome do instalador não é o asset oficial esperado.";
         return false;
     }
     const std::wstring_view tag =
         std::wstring_view(path).substr(kReleasePathPrefix.size(),
                                        assetOffset - kReleasePathPrefix.size() - 1);
-    if (tag.empty() || !std::all_of(tag.begin(), tag.end(), isReleaseTagCharacter)) {
+    if (tag != expectedTag || !std::all_of(tag.begin(), tag.end(), isReleaseTagCharacter)) {
         error = L"A tag do release do instalador é inválida.";
         return false;
     }
@@ -299,6 +297,26 @@ const ReleaseAsset* ReleaseInfo::findAssetWithSuffix(std::wstring_view suffix) c
 
 int compareVersions(std::wstring_view left, std::wstring_view right) {
     return compareVersionImpl(left, right);
+}
+
+std::wstring installerNameForTag(std::wstring_view tag) {
+    std::wstring version(trim(tag));
+    if (!version.empty() && (version.front() == L'v' || version.front() == L'V')) {
+        version.erase(version.begin());
+    }
+    if (version.empty() || version.size() > 32) return {};
+    bool digit = false;
+    for (const wchar_t ch : version) {
+        if (ch >= L'0' && ch <= L'9') {
+            digit = true;
+        } else if (ch == L'.' && digit) {
+            digit = false;
+        } else {
+            return {};
+        }
+    }
+    if (!digit) return {};
+    return L"DisneySkateSetup-" + version + L".exe";
 }
 
 bool fetchLatestRelease(ReleaseInfo& release, std::wstring& error) {
@@ -361,16 +379,22 @@ bool fetchLatestRelease(ReleaseInfo& release, std::wstring& error) {
 }
 
 bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
-                          const CancelToken& cancel,
+                          std::wstring_view expectedTag, std::wstring_view expectedName,
+                          uint64_t expectedSize, const CancelToken& cancel,
                           const std::function<void(uint64_t, uint64_t)>& onProgress,
                           std::wstring& error) {
     error.clear();
+    if (expectedSize == 0 || expectedSize > kMaximumInstallerSize) {
+        error = L"O tamanho do instalador informado pelo release é inválido.";
+        return false;
+    }
     std::wstring currentUrl = url;
     for (DWORD redirectCount = 0;; ++redirectCount) {
         URL_COMPONENTS components{};
         std::wstring host;
         std::wstring path;
-        if (!parseUrl(currentUrl, components, host, path, redirectCount != 0, error)) {
+        if (!parseUrl(currentUrl, components, host, path, redirectCount != 0, expectedTag,
+                      expectedName, error)) {
             return false;
         }
 
@@ -429,7 +453,7 @@ bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
         if (!lengthHeader.empty()) {
             uint64_t advertisedSize = 0;
             if (!parseContentLength(lengthHeader, advertisedSize) ||
-                advertisedSize != kInstallerSize) {
+                advertisedSize != expectedSize) {
                 error = L"O tamanho informado pelo servidor não corresponde ao instalador esperado.";
                 return false;
             }
@@ -469,7 +493,7 @@ bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
                 success = false;
                 break;
             }
-            if (read == 0 || read > kInstallerSize - completed) {
+            if (read == 0 || read > expectedSize - completed) {
                 error = L"O instalador recebido excede ou não corresponde ao tamanho esperado.";
                 success = false;
                 break;
@@ -481,25 +505,15 @@ bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
                 break;
             }
             completed += read;
-            if (onProgress) onProgress(completed, kInstallerSize);
+            if (onProgress) onProgress(completed, expectedSize);
         }
         CloseHandle(file);
         if (!success) {
             DeleteFileW(part.c_str());
             return false;
         }
-        if (completed != kInstallerSize) {
+        if (completed != expectedSize) {
             error = L"O instalador recebido não corresponde ao tamanho esperado.";
-            DeleteFileW(part.c_str());
-            return false;
-        }
-        std::wstring digest;
-        if (!sha256File(part, digest, error)) {
-            DeleteFileW(part.c_str());
-            return false;
-        }
-        if (!iequals(digest, kInstallerSha256)) {
-            error = L"O SHA-256 do instalador não corresponde ao binário aprovado.";
             DeleteFileW(part.c_str());
             return false;
         }
@@ -510,7 +524,7 @@ bool downloadReleaseAsset(const std::wstring& url, const fs::path& destination,
             DeleteFileW(part.c_str());
             return false;
         }
-        if (onProgress) onProgress(kInstallerSize, kInstallerSize);
+        if (onProgress) onProgress(expectedSize, expectedSize);
         return true;
     }
 }

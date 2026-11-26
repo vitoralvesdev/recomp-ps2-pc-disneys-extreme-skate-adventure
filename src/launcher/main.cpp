@@ -64,8 +64,22 @@ int runVerify(const ds::Layout& layout) {
     }
     writeLine();
     writeLine(report.ready ? L"RESULTADO: pacote pronto para jogar."
-                           : L"RESULTADO: pacote incompleto; abra o launcher para instalar.");
+                           : L"RESULTADO: a verificação falhou; confira os erros acima.");
     return report.ready ? 0 : 2;
+}
+
+int runManifest(const ds::Layout& layout) {
+    std::wstring error;
+    if (!layout.ensureUserDirectories(error)) {
+        writeLine(L"ERRO: " + error);
+        return 1;
+    }
+    if (!ds::writePackageManifest(layout, {}, error)) {
+        writeLine(L"ERRO ao atualizar o manifesto: " + error);
+        return 1;
+    }
+    writeLine(L"RESULTADO: manifesto SHA-256 atualizado para o pacote atual.");
+    return 0;
 }
 
 int runIsoVerification(const ds::Layout& layout, const std::wstring& isoPath) {
@@ -158,7 +172,8 @@ void printHelp() {
     writeLine();
     writeLine(L"Uso:");
     writeLine(L"  \"Disney's Extreme Skate Adventure.exe\"                 Abre o launcher.");
-    writeLine(L"  \"...exe\" --verificar                                  Verifica o pacote instalado.");
+    writeLine(L"  \"...exe\" --verificar                                  Audita o pacote e os hashes SHA-256.");
+    writeLine(L"  \"...exe\" --atualizar-manifesto                         Regera o manifesto apos recompilar o runtime.");
     writeLine(L"  \"...exe\" --iso <imagem> --verificar                   Valida uma ISO NTSC-U.");
     writeLine(L"  \"...exe\" --instalar <imagem>                          Instala sem interface.");
     writeLine(L"  \"...exe\" --diagnostico                                Abre com diagnóstico de travamentos.");
@@ -170,6 +185,7 @@ void printHelp() {
 
 struct Arguments {
     bool verify = false;
+    bool refreshManifest = false;
     bool diagnostics = false;
     bool help = false;
     bool version = false;
@@ -184,6 +200,8 @@ Arguments parseArguments(int argc, wchar_t** argv) {
         const std::wstring argument = argv[i];
         if (_wcsicmp(argument.c_str(), L"--verificar") == 0) {
             result.verify = true;
+        } else if (_wcsicmp(argument.c_str(), L"--atualizar-manifesto") == 0) {
+            result.refreshManifest = true;
         } else if (_wcsicmp(argument.c_str(), L"--diagnostico") == 0) {
             result.diagnostics = true;
         } else if (_wcsicmp(argument.c_str(), L"--versao") == 0 ||
@@ -220,6 +238,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     ds::Layout layout = ds::Layout::detect(ds::thisExecutablePath());
+    if (arguments.refreshManifest) {
+        ensureOutput();
+        const int result = runManifest(layout);
+        CoUninitialize();
+        return result;
+    }
     if (arguments.verify) {
         ensureOutput();
         const int result = arguments.iso.empty() ? runVerify(layout)

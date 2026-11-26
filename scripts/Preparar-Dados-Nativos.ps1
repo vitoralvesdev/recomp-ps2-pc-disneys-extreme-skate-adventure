@@ -53,16 +53,37 @@ $values=1..4 | ForEach-Object{[float]::Parse($match.Groups[$_].Value,$culture)}
 $spawn=@($values[0],$values[1],-$values[2],([Math]::PI-$values[3])) | ForEach-Object{$_.ToString('R',$culture)}
 [IO.File]::WriteAllText("$native\spawn.txt",($spawn -join ' '))
 $oldDotnetHome=$env:DOTNET_CLI_HOME
+$oldNugetScratch=$env:NUGET_SCRATCH
+$oldTemp=$env:TEMP
+$oldTmp=$env:TMP
+$oldDotnetSkipFirstTime=$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE
+$oldDotnetTelemetry=$env:DOTNET_CLI_TELEMETRY_OPTOUT
+$oldDotnetNoLogo=$env:DOTNET_NOLOGO
+$dotnetStateRoot=Join-Path $AnalysisDir 'dotnet-home'
+$runId=[Guid]::NewGuid().ToString('N')
+$nugetScratch=Join-Path $AnalysisDir ('nuget-scratch-' + $runId)
+$processTemp=Join-Path $AnalysisDir ('col8-temp-' + $runId)
+$col8BuildLog=Join-Path $AnalysisDir 'col8-build.log'
 try {
-    $env:DOTNET_CLI_HOME=Join-Path $BuildDir 'dotnet-home'
+    $env:DOTNET_CLI_HOME=$dotnetStateRoot
+    $env:NUGET_SCRATCH=$nugetScratch
+    $env:TEMP=$processTemp
+    $env:TMP=$processTemp
+    $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
+    $env:DOTNET_NOLOGO='1'
     $converterRoot=Join-Path $BuildDir 'col8-converter'
     $converterSource=Join-Path $converterRoot 'source'
     $converterOutput=Join-Path $converterRoot 'output'
-    New-Item -ItemType Directory -Force -Path $converterSource,$converterOutput | Out-Null
+    [IO.Directory]::CreateDirectory($converterSource) | Out-Null
+    [IO.Directory]::CreateDirectory($converterOutput) | Out-Null
+    [IO.Directory]::CreateDirectory($env:DOTNET_CLI_HOME) | Out-Null
+    [IO.Directory]::CreateDirectory($env:NUGET_SCRATCH) | Out-Null
+    [IO.Directory]::CreateDirectory($processTemp) | Out-Null
     Copy-Item -Path (Join-Path $ConverterDir '*.cs'),(Join-Path $ConverterDir 'Col8Converter.csproj'),(Join-Path $ConverterDir 'NuGet.Config') -Destination $converterSource -Force
     Write-DisneyProgress 65 'Compilando o conversor de colisoes COL v8...'
-    & dotnet build $converterSource\Col8Converter.csproj -c Release --output $converterOutput *> (Join-Path $AnalysisDir 'col8-build.log')
-    if($LASTEXITCODE -ne 0){throw 'Falha ao compilar conversor COL v8; requer SDK .NET 9'}
+    & dotnet build $converterSource\Col8Converter.csproj -c Release --output $converterOutput --disable-build-servers *> $col8BuildLog
+    if($LASTEXITCODE -ne 0){throw "Falha ao compilar conversor COL v8. Confira $col8BuildLog"}
     $collisionSources=Get-ChildItem -LiteralPath $source -Recurse -File -Filter '*.col.ps2' | Sort-Object FullName
     if(-not $collisionSources){throw 'Nenhum arquivo COL de colisao foi encontrado'}
     $conversionLog=Join-Path $AnalysisDir 'col8-conversion.log'
@@ -77,6 +98,16 @@ try {
         ++$converted
         if($converted % 10 -eq 0){Write-DisneyProgress (70 + [Math]::Min(20,[int](70*$converted/$collisionSources.Count))) "Colisoes convertidas: $converted/$($collisionSources.Count)"}
     }
-} finally {$env:DOTNET_CLI_HOME=$oldDotnetHome}
+} finally {
+    $env:DOTNET_CLI_HOME=$oldDotnetHome
+    $env:NUGET_SCRATCH=$oldNugetScratch
+    $env:TEMP=$oldTemp
+    $env:TMP=$oldTmp
+    $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE=$oldDotnetSkipFirstTime
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT=$oldDotnetTelemetry
+    $env:DOTNET_NOLOGO=$oldDotnetNoLogo
+    Remove-Item -LiteralPath $nugetScratch -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $processTemp -Recurse -Force -ErrorAction SilentlyContinue
+}
 Write-DisneyProgress 100 'Dados nativos das fases e Timon preparados.'
 Write-Output 'Dados nativos das fases e Timon preparados. Nenhum executavel ou modulo do PS2 foi executado.'

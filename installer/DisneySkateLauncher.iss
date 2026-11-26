@@ -6,7 +6,7 @@
 ; Build: scripts\Empacotar-Instalador.ps1
 
 #define MyAppName "Disney's Extreme Skate Adventure"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "HighSky REC"
 #define MyAppURL "https://github.com/vitoralvesdev/recomp-ps2-pc-disneys-extreme-skate-adventure"
 #define MyAppExeName "Disney's Extreme Skate Adventure.exe"
@@ -43,7 +43,7 @@ SetupLogging=yes
 ; restrict child processes from writing HKCU. Never used for releases.
 Uninstallable=no
 #endif
-VersionInfoVersion=0.3.0.0
+VersionInfoVersion=0.4.0.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} launcher setup
 VersionInfoProductName={#MyAppName}

@@ -1,5 +1,7 @@
 #include "ps2_runtime.h"
 #include "Stubs/MPEG.h"
+#include "Syscalls/System.h"
+#include "Stubs/SIF.h"
 #include "runtime/ee_scheduler.h"
 #include <vector>
 #include <cstdio>
@@ -20,6 +22,7 @@ static void returnNormally(uint8_t*,R5900Context* ctx,PS2Runtime*) { visited=tru
 static void sparseHandler(uint8_t*,R5900Context* ctx,PS2Runtime*) { ctx->pc=getRegU32(ctx,31); }
 static void check(bool condition,const char* label) { if(!condition){std::fprintf(stderr,"FAIL: %s\n",label);std::exit(1);} }
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
+void FUN_00109f48_0x109f48(uint8_t*,R5900Context*,PS2Runtime*);
 void entry_303910_0x303948(uint8_t*,R5900Context*,PS2Runtime*);
 void entry_3040b8_0x3040f0(uint8_t*,R5900Context*,PS2Runtime*);
 void FUN_003040f0_0x3040f0(uint8_t*,R5900Context*,PS2Runtime*);
@@ -105,7 +108,7 @@ static void testVu0DataMemory(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
  std::puts("PASS: EE VLQI/VSQI exchange quadwords through VU0 data memory");
 }
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
-static void testVu0CollisionKernel(PS2Runtime& runtime) {
+static void testVu0CollisionKernel(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
  using Vec4=std::array<float,4>;
  struct Case {
   const char* label;
@@ -114,24 +117,37 @@ static void testVu0CollisionKernel(PS2Runtime& runtime) {
   float t;
  };
  struct Result { bool hit; float t; };
+ check(runtime.memory().initialize(ram.size()),"collision wrapper test initialized");
+ uint8_t* vu0Code=runtime.memory().getVU0Code();
+ check(vu0Code!=nullptr,"collision wrapper VU0 code memory is allocated");
+ std::memset(vu0Code,0,PS2_VU0_CODE_SIZE);
+ std::array<uint8_t,VU1InterpreterAccess::kFastCodeSize> paddedCode{};
+ uint64_t imageHash=0xCBF29CE484222325ull;
+ for(uint8_t byte:paddedCode) { imageHash^=byte; imageHash*=1099511628211ull; }
+ // The runtime hashes a zero-padded 16 KB image; alias the AOT entry to exercise its real dispatch path.
+ registerVu1CompiledProgram(imageHash,&VU1InterpreterAccess::runImage<0xA71F9755E12AF1B2ull>);
  const auto runCollision=[&](const Case& test) {
-  VU1Interpreter vu(VU1Interpreter::Unit::VU0);
-  vu.reset();
-  std::array<uint8_t,VU1InterpreterAccess::kFastMemSize> data{};
-  Vu1RunArgs args{data.data(),VU1InterpreterAccess::kFastMemSize,&runtime.gs(),&runtime.memory(),
-                  VU1InterpreterAccess::kFastCodeSize,4096};
-  auto& state=vu.state();
-  state.ebit=false;
-  state.pc=0x7e8;
-  state.vi[2]=9;
-  std::memcpy(state.vf[4],test.origin.data(),sizeof(state.vf[4]));
-  std::memcpy(state.vf[5],test.direction.data(),sizeof(state.vf[5]));
-  std::memcpy(state.vf[6],test.a.data(),sizeof(state.vf[6]));
-  std::memcpy(state.vf[7],test.b.data(),sizeof(state.vf[7]));
-  std::memcpy(state.vf[8],test.c.data(),sizeof(state.vf[8]));
-  check(VU1InterpreterAccess::runImage<0xA71F9755E12AF1B2ull>(vu,args)==VU1InterpreterAccess::StepResult::Ended,
-         test.label);
-  return Result{state.vi[2]!=0,state.vf[17][0]};
+  constexpr uint32_t originAddress=0x3000u,directionAddress=0x3010u,aAddress=0x3020u;
+  constexpr uint32_t bAddress=0x3030u,cAddress=0x3040u,resultAddress=0x3050u;
+  const auto writeVector=[&](uint32_t address,const Vec4& value) {
+   std::memcpy(ram.data()+address,value.data(),sizeof(value));
+  };
+  writeVector(originAddress,test.origin); writeVector(directionAddress,test.direction);
+  writeVector(aAddress,test.a); writeVector(bAddress,test.b); writeVector(cAddress,test.c);
+  R5900Context ctx;
+  ctx.r[4]=_mm_cvtsi32_si128(originAddress); ctx.r[5]=_mm_cvtsi32_si128(directionAddress);
+  ctx.r[6]=_mm_cvtsi32_si128(aAddress); ctx.r[7]=_mm_cvtsi32_si128(bAddress);
+  ctx.r[8]=_mm_cvtsi32_si128(cAddress); ctx.r[9]=_mm_cvtsi32_si128(resultAddress);
+  ctx.r[31]=_mm_cvtsi32_si128(0x2000u); ctx.vi[2]=9;
+  const uint32_t untouched=0x7fc12345u;
+  std::memcpy(ram.data()+resultAddress,&untouched,sizeof(untouched));
+  FUN_00109f48_0x109f48(ram.data(),&ctx,&runtime);
+  const bool hit=getRegU32(&ctx,2)!=0;
+  float t=0.0f;
+  if(hit) std::memcpy(&t,ram.data()+resultAddress,sizeof(t));
+  else check(std::memcmp(ram.data()+resultAddress,&untouched,sizeof(untouched))==0,test.label);
+  check(ctx.pc==0x2000u,test.label);
+  return Result{hit,t};
  };
  const Case floorCase={"floor hit",{0.25f,0.25f,1.0f,0.0f},{0.0f,0.0f,-2.0f,0.0f},
                        {0.0f,0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f,0.0f},true,0.5f};
@@ -161,7 +177,7 @@ static void testVu0CollisionKernel(PS2Runtime& runtime) {
   check(result.hit==test.hit,test.label);
   if(test.hit) check(std::fabs(result.t-test.t)<0.00001f,test.label);
  }
- std::puts("PASS: original VU0 collision kernel handles ramps, misses, limits, degeneracy, edges and winding");
+ std::puts("PASS: EE collision wrapper and VU0 runtime handle ramps, misses, limits, degeneracy, edges and winding");
 }
 #endif
 static void testOriginalSyscallLookup(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
@@ -489,6 +505,41 @@ static void testMpegFrameLayout() {
        "MPEG macroblock padding is opaque black");
  std::puts("PASS: MPEG guest frames use column-major 16x16 macroblocks with row-major RGBA pixels");
 }
+static void testRuntimeStubFailures(PS2Runtime& runtime,std::vector<uint8_t>& ram) {
+ R5900Context ctx;
+ ram[0]=0xa5u;
+ ctx.r[4]=_mm_cvtsi32_si128(0);
+ ps2_syscalls::GetOsdConfigParam(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0xffffffffu && ram[0]==0xa5u,"null OSD pointer is rejected without writing RDRAM");
+ const uint32_t edgeAddr=PS2_RAM_SIZE-1u;
+ ram[edgeAddr]=0x5au;
+ ctx.r[4]=_mm_cvtsi32_si128(edgeAddr);
+ ps2_syscalls::GetOsdConfigParam(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0xffffffffu && ram[edgeAddr]==0x5au,"truncated OSD word is rejected");
+ ctx.r[4]=_mm_cvtsi32_si128(edgeAddr);
+ ps2_syscalls::SetOsdConfigParam(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0xffffffffu,"truncated OSD input is rejected");
+ ctx.r[4]=_mm_cvtsi32_si128(0x2000);
+ ps2_syscalls::SetOsdConfigParam(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0u,"valid OSD pointer is accepted");
+ ps2_syscalls::GetOsdConfigParam(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0u,"valid OSD read is accepted");
+
+ ctx.r[2]=_mm_cvtsi32_si128(0x12345678);
+ ctx.r[4]=_mm_cvtsi32_si128(0x7ffffff0);
+ ctx.r[5]=_mm_cvtsi32_si128(0);
+ ps2_syscalls::Deci2Call(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0xffffffffu,"unavailable Deci2Call returns an explicit error");
+
+ ctx.r[4]=_mm_cvtsi32_si128(PS2_RAM_SIZE-8u);
+ ctx.r[5]=_mm_cvtsi32_si128(1);
+ ps2_stubs::sceSifSetDma(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0u,"truncated SIF DMA descriptor is rejected");
+ ps2_stubs::sceSifSetDChain(ram.data(),&ctx,&runtime);
+ check(getRegU32(&ctx,2)==0xffffffffu,"unsupported SIF DChain returns an explicit error");
+ std::puts("PASS: runtime stubs reject invalid state and unsupported operations");
+}
+
 int main() {
  testMpegPssParsing();
  testMpegFrameLayout();
@@ -532,6 +583,7 @@ int main() {
  check(recursiveCalls>0u && recursiveCalls<=64u,"native calls have bounded depth");
  std::puts("PASS: deep guest calls yield before native stack overflow");
  std::vector<uint8_t> ram(0x2000000u);
+ testRuntimeStubFailures(runtime,ram);
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
  testOriginalSyscallLookup(runtime,ram);
  testOriginalCopiedSyscallLookup(runtime,ram);
@@ -546,15 +598,25 @@ int main() {
  runtime.registerFunction(0x1010u,&checkGsDelivery);
  runtime.registerFunction(0x1014u,&acknowledgeGs);
  runtime.eeScheduler().reset(ram.data(),initial);
- runtime.eeScheduler().addIrqHandler(false,0u,0x1014u,false,0u,0u,0u);
- runtime.eeScheduler().run();
+ auto& scheduler=runtime.eeScheduler();
+ check(scheduler.addIrqHandler(false,32u,0x1014u,false,0u,0u,0u)==-1,"invalid INTC cause is rejected");
+ check(scheduler.addIrqHandler(false,0u,0u,false,0u,0u,0u)==-1,"null INTC handler is rejected");
+ check(scheduler.addIrqHandler(false,0u,0x1fffc,false,0u,0u,0u)==-1,"missing INTC handler is rejected");
+ const int irqId=scheduler.addIrqHandler(false,0u,0x1014u,false,0u,0u,0u);
+ check(irqId>0,"valid INTC handler is registered");
+ check(scheduler.removeIrqHandler(false,1u,irqId)==-1,"wrong-cause INTC removal is rejected");
+ check(scheduler.setIrqHandlerEnabled(false,irqId+100000,false)==-1,"missing INTC handler update is rejected");
+ check(scheduler.setIrqCauseEnabled(false,32u,true)==-1,"invalid INTC mask update is rejected");
+ check(scheduler.setIrqHandlerEnabled(false,irqId,false)==0 && scheduler.setIrqHandlerEnabled(false,irqId,true)==0,
+       "valid INTC handler updates succeed");
+ scheduler.run();
  std::puts("PASS: GS interrupt masking, delivery and acknowledgement");
  testNativeDisplayClock(runtime,ram);
  testInterruptAtomicity(runtime,ram);
 #if defined(DISNEY_TEST_ORIGINAL_AOT)
  testInvalidDmaAddresses();
  testVu0DataMemory(runtime,ram);
- testVu0CollisionKernel(runtime);
+ testVu0CollisionKernel(runtime,ram);
 #endif
  auto fatalRuntime=std::make_unique<PS2Runtime>(); R5900Context fatalContext;
  fatalRuntime->setMissingFunctionPolicy(PS2Runtime::MissingFunctionPolicy::Stop);

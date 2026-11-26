@@ -40,7 +40,7 @@ Write-Output 'Gerando o instalador com Inno Setup...'
 & $iscc $script
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao gerar o instalador.' }
 
-$setup = Join-Path $dist 'DisneySkateSetup-0.3.0.exe'
+$setup = Join-Path $dist 'DisneySkateSetup-0.4.0.exe'
 if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
     throw "O Inno Setup terminou sem produzir $setup"
 }

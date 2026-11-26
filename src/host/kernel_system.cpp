@@ -94,16 +94,15 @@ namespace ps2_syscalls
     void GetOsdConfigParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         uint32_t paramAddr = getRegU32(ctx, 4); // $a0 - pointer to parameter structure
+        uint32_t *param = paramAddr != 0u ? getEeGuestStruct<uint32_t>(rdram, paramAddr) : nullptr;
 
-        if (!getMemPtr(rdram, paramAddr))
+        if (!param)
         {
             std::cerr << "PS2 GetOsdConfigParam error: Invalid parameter address: 0x"
                       << std::hex << paramAddr << std::dec << std::endl;
             setReturnS32(ctx, -1);
             return;
         }
-
-        uint32_t *param = reinterpret_cast<uint32_t *>(getMemPtr(rdram, paramAddr));
 
         ensureOsdConfigInitialized();
         uint32_t raw;
@@ -120,8 +119,9 @@ namespace ps2_syscalls
     void SetOsdConfigParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         uint32_t paramAddr = getRegU32(ctx, 4); // $a0 - pointer to parameter structure
+        const uint32_t *param = paramAddr != 0u ? getEeGuestStruct<uint32_t>(rdram, paramAddr) : nullptr;
 
-        if (!getConstMemPtr(rdram, paramAddr))
+        if (!param)
         {
             std::cerr << "PS2 SetOsdConfigParam error: Invalid parameter address: 0x"
                       << std::hex << paramAddr << std::dec << std::endl;
@@ -129,8 +129,7 @@ namespace ps2_syscalls
             return;
         }
 
-        const uint32_t *param = reinterpret_cast<const uint32_t *>(getConstMemPtr(rdram, paramAddr));
-        uint32_t raw = param ? *param : 0;
+        uint32_t raw = *param;
         raw = sanitizeOsdConfigRaw(raw);
         {
             std::lock_guard<std::mutex> lock(g_osd_mutex);

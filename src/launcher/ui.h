@@ -26,15 +26,18 @@ void fillEllipse(Gdiplus::Graphics& graphics, const Gdiplus::RectF& rect,
 void drawText(Gdiplus::Graphics& graphics, const std::wstring& text,
               const Gdiplus::Font& font, const Gdiplus::Color& color,
               const Gdiplus::RectF& rect, TextAlign align = TextAlign::Left, bool wrap = false,
-              bool ellipsis = true, int lineLimit = 0);
+              bool ellipsis = true, int lineLimit = 0, bool centerVertically = false);
 
 // Convenience overload so call sites can pass the font owners directly.
 inline void drawText(Gdiplus::Graphics& graphics, const std::wstring& text,
                      const std::unique_ptr<Gdiplus::Font>& font,
                      const Gdiplus::Color& color, const Gdiplus::RectF& rect,
                      TextAlign align = TextAlign::Left, bool wrap = false, bool ellipsis = true,
-                     int lineLimit = 0) {
-    if (font) drawText(graphics, text, *font, color, rect, align, wrap, ellipsis, lineLimit);
+                     int lineLimit = 0, bool centerVertically = false) {
+    if (font) {
+        drawText(graphics, text, *font, color, rect, align, wrap, ellipsis, lineLimit,
+                 centerVertically);
+    }
 }
 float measureTextHeight(Gdiplus::Graphics& graphics, const std::wstring& text,
                         const Gdiplus::Font& font, float width, bool wrap = true);

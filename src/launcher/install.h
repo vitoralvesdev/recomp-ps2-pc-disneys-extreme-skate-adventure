@@ -41,6 +41,9 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
                              const InstallOptions& options, const CancelToken& cancel,
                              const std::function<void(const InstallEvent&)>& onEvent);
 
+// Removes generated game payloads while preserving user data and portable-layout sentinels.
+bool uninstallGame(const Layout& layout, std::wstring& error);
+
 // True when every file the ISO would write matches its size and SHA-256.
 bool gameDataMatchesIso(const Layout& layout, IsoImage& image, std::wstring& detail);
 

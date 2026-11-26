@@ -2,6 +2,13 @@
   "edition": "SLUS_206.07 USA",
   "evidence": "SDK signatures from initial.toml; functional runtime handlers only",
   "excludedSources": [
+    "FUN_00270f58_0x270f58.cpp",
+    "entry_00270f70_0x270f70.cpp",
+    "entry_00270fa8_0x270fa8.cpp",
+    "entry_00270fcc_0x270fcc.cpp",
+    "entry_00271008_0x271008.cpp",
+    "entry_0027103c_0x27103c.cpp",
+    "entry_00271064_0x271064.cpp",
     "FUN_002c4628_0x2c4628.cpp",
     "FUN_002c4768_0x2c4768.cpp",
     "FUN_002c4808_0x2c4808.cpp",

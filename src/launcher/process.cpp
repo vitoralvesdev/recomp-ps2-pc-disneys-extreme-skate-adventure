@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cwchar>
 
 namespace ds {
 namespace {
@@ -56,7 +57,8 @@ std::wstring quoteExecutableCommand(const fs::path& executable,
 
 bool runProcess(const std::wstring& commandLine, const fs::path& workingDirectory,
                 const std::function<void(std::string_view)>& onLine, const CancelToken& cancel,
-                DWORD& exitCode, std::wstring& error) {
+                DWORD& exitCode, std::wstring& error,
+                const fs::path& temporaryDirectory) {
     exitCode = 0;
     error.clear();
 
@@ -72,6 +74,33 @@ bool runProcess(const std::wstring& commandLine, const fs::path& workingDirector
     HANDLE nullInput = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                    &security, OPEN_EXISTING, 0, nullptr);
 
+    std::vector<wchar_t> environment;
+    if (!temporaryDirectory.empty()) {
+        LPWCH currentEnvironment = GetEnvironmentStringsW();
+        if (!currentEnvironment) {
+            error = L"Não foi possível ler o ambiente do processo: " +
+                   windowsErrorMessage(GetLastError());
+            CloseHandle(readPipe);
+            CloseHandle(writePipe);
+            if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
+            return false;
+        }
+        for (LPWCH entry = currentEnvironment; *entry; entry += std::wcslen(entry) + 1) {
+            if (_wcsnicmp(entry, L"TEMP=", 5) == 0 || _wcsnicmp(entry, L"TMP=", 4) == 0) {
+                continue;
+            }
+            environment.insert(environment.end(), entry, entry + std::wcslen(entry) + 1);
+        }
+        FreeEnvironmentStringsW(currentEnvironment);
+        const std::wstring temp = L"TEMP=" + temporaryDirectory.wstring();
+        const std::wstring tmp = L"TMP=" + temporaryDirectory.wstring();
+        environment.insert(environment.end(), temp.begin(), temp.end());
+        environment.push_back(L'\0');
+        environment.insert(environment.end(), tmp.begin(), tmp.end());
+        environment.push_back(L'\0');
+        environment.push_back(L'\0');
+    }
+
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
@@ -84,7 +113,8 @@ bool runProcess(const std::wstring& commandLine, const fs::path& workingDirector
 
     const BOOL started = CreateProcessW(
         nullptr, mutableCommand.data(), nullptr, nullptr, TRUE,
-        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, nullptr,
+        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
+        environment.empty() ? nullptr : environment.data(),
         mutableDirectory.empty() ? nullptr : mutableDirectory.c_str(), &startup, &process);
     if (!started) {
         error = L"Não foi possível iniciar o processo: " +

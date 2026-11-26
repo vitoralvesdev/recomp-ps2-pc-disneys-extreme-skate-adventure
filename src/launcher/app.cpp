@@ -16,6 +16,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <softpub.h>
+#include <tlhelp32.h>
 #include <WinTrust.h>
 #include <windowsx.h>
 #include <wintrust.h>
@@ -47,6 +48,7 @@ constexpr UINT WM_APP_UPDATE_DONE = WM_APP + 14;
 constexpr UINT WM_APP_DOWNLOAD_PROGRESS = WM_APP + 15;
 constexpr UINT WM_APP_DOWNLOAD_DONE = WM_APP + 16;
 constexpr UINT WM_APP_STARTUP = WM_APP + 17;
+constexpr UINT WM_APP_UNINSTALL_DONE = WM_APP + 18;
 constexpr UINT_PTR kUpdateSpinnerTimer = 1;
 
 constexpr uint32_t kBgTop = 0x080D19;
@@ -107,6 +109,7 @@ enum Action {
     ActOpenControls,
     ActRefreshLogs,
     ActCopyDiagnostics,
+    ActUninstall,
     ActCloseUpdateModal,
     ActClose,
 };
@@ -142,6 +145,11 @@ struct DownloadOutcome {
     bool ok = false;
     std::wstring error;
     fs::path path;
+};
+
+struct UninstallOutcome {
+    bool ok = false;
+    std::wstring error;
 };
 
 int hitId(int action, int value) { return action * 16 + value; }
@@ -193,6 +201,56 @@ std::wstring relativeDisplayPath(const fs::path& path, const fs::path& base) {
         if (text.rfind(L"..", 0) != 0) return text;
     }
     return path.wstring();
+}
+
+bool runtimeProcessRunning(const Layout& layout, std::wstring& error) {
+    error.clear();
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        error = L"Não foi possível verificar os processos antes da desinstalação.";
+        return true;
+    }
+
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    bool running = false;
+    if (Process32FirstW(snapshot, &entry)) {
+        do {
+            if (_wcsicmp(entry.szExeFile, L"DisneySkateRuntime.exe") != 0) continue;
+
+            HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+            if (!process) {
+                error = L"Não foi possível verificar se o jogo está aberto. Feche-o e tente novamente.";
+                running = true;
+                break;
+            }
+
+            wchar_t processPath[32768]{};
+            DWORD pathSize = static_cast<DWORD>(std::size(processPath));
+            if (!QueryFullProcessImageNameW(process, 0, processPath, &pathSize)) {
+                error = L"Não foi possível verificar se o jogo está aberto. Feche-o e tente novamente.";
+                running = true;
+            } else {
+                std::error_code ec;
+                const bool sameRuntime = fs::equivalent(fs::path(processPath), layout.runtimeExe(), ec);
+                if ((!ec && sameRuntime) ||
+                    (ec && _wcsicmp(processPath, layout.runtimeExe().wstring().c_str()) == 0)) {
+                    running = true;
+                }
+            }
+            CloseHandle(process);
+            if (running) break;
+        } while (Process32NextW(snapshot, &entry));
+        if (!running && GetLastError() != ERROR_NO_MORE_FILES) {
+            error = L"Não foi possível verificar os processos antes da desinstalação.";
+            running = true;
+        }
+    } else {
+        error = L"Não foi possível verificar os processos antes da desinstalação.";
+        running = true;
+    }
+    CloseHandle(snapshot);
+    return running;
 }
 
 std::wstring relativeDataArgument(const Layout& layout, const fs::path& executable) {
@@ -324,6 +382,7 @@ private:
 
     void startInstall();
     void cancelInstall();
+    void startUninstall();
     void startGame();
     void bringGameToFront();
     void startUpdateCheck(bool manual);
@@ -337,6 +396,7 @@ private:
 
     void handleInstallEvent(std::unique_ptr<InstallEvent> event);
     void handleInstallDone(std::unique_ptr<InstallResult> result);
+    void handleUninstallDone(std::unique_ptr<UninstallOutcome> outcome);
     void handleUpdateDone(std::unique_ptr<UpdateOutcome> outcome);
     void handleDownloadDone(std::unique_ptr<DownloadOutcome> outcome);
     void handleGameExited(DWORD exitCode);
@@ -380,6 +440,11 @@ private:
     bool gameRunning_ = false;
     DWORD gamePid_ = 0;
 
+    bool uninstalling_ = false;
+    bool externalGameRunning_ = false;
+    std::wstring runtimeCheckError_;
+    std::thread uninstallThread_;
+
     bool updateChecking_ = false;
     bool updateHasNew_ = false;
     UpdateModalState updateModal_ = UpdateModalNone;
@@ -410,6 +475,7 @@ App::Impl::~Impl() {
     if (installCancel_) installCancel_->cancel();
     if (downloadCancel_) downloadCancel_->cancel();
     if (installThread_.joinable()) installThread_.join();
+    if (uninstallThread_.joinable()) uninstallThread_.join();
     destroyGraphics();
     Logger::instance().close();
 }
@@ -460,7 +526,7 @@ bool App::Impl::initialize(HINSTANCE instance, bool diagnosticsMode) {
     draft_ = settings_;
     isoPath_ = settings_.lastIsoPath;
 
-    report_ = inspectPackage(layout_);
+    report_ = inspectPackageForLaunch(layout_);
     page_ = report_.ready ? PageReady : PageHome;
     if (page_ == PageHome) {
         logInfo(L"Pacote incompleto; exibindo a tela de instalação.");
@@ -474,7 +540,6 @@ bool App::Impl::initialize(HINSTANCE instance, bool diagnosticsMode) {
     loadCover();
     createLogEdit();
     layoutLogEdit();
-    if (!isoPath_.empty()) validateSelectedIso();
 
     ShowWindow(hwnd_, SW_SHOW);
     UpdateWindow(hwnd_);
@@ -698,6 +763,10 @@ LRESULT App::Impl::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         handleInstallDone(std::unique_ptr<InstallResult>(
             reinterpret_cast<InstallResult*>(lParam)));
         return 0;
+    case WM_APP_UNINSTALL_DONE:
+        handleUninstallDone(std::unique_ptr<UninstallOutcome>(
+            reinterpret_cast<UninstallOutcome*>(lParam)));
+        return 0;
     case WM_APP_GAME_EXITED:
         handleGameExited(static_cast<DWORD>(wParam));
         return 0;
@@ -721,6 +790,11 @@ LRESULT App::Impl::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_CLOSE:
         if (installing_ && !installFinished_) {
             MessageBoxW(hwnd_, L"A instalação está em andamento. Cancele antes de fechar.",
+                        kWindowTitle, MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
+        if (uninstalling_) {
+            MessageBoxW(hwnd_, L"A desinstalação está em andamento. Aguarde a conclusão.",
                         kWindowTitle, MB_OK | MB_ICONINFORMATION);
             return 0;
         }
@@ -819,7 +893,7 @@ void App::Impl::drawHeader(Gdiplus::Graphics& graphics, float width) {
     ui::fillRoundRect(graphics, version, S(8), ui::color(kBlue, 22));
     ui::strokeRoundRect(graphics, version, S(8), ui::color(kBlue, 90));
     ui::drawText(graphics, L"v" DISNEY_LAUNCHER_VERSION_STRING, *fonts_.smallBoldText,
-                 ui::color(0xBFD6FF), version, ui::TextAlign::Center);
+                 ui::color(0xBFD6FF), version, ui::TextAlign::Center, false, true, 0, true);
 
     Gdiplus::Pen line(ui::color(kBorder, 150), 1.0f);
     graphics.DrawLine(&line, 26.0f, S(82), width - 26.0f, S(82));
@@ -870,9 +944,9 @@ void App::Impl::drawButton(Gdiplus::Graphics& graphics, const RectF& rect,
         border = ui::color(hot ? 0x3A4D75 : kBorder);
         text = enabled ? ui::color(0xE7EDFF) : ui::color(kFaint);
     } else if (style == 2) { // danger
-        fill = ui::color(hot ? 0x4A222C : 0x361A22);
-        border = ui::color(0x7A3040);
-        text = ui::color(0xFFB9C2);
+        fill = ui::color(enabled ? (hot ? 0x4A222C : 0x361A22) : 0x241C28);
+        border = ui::color(enabled ? 0x7A3040 : 0x40303E);
+        text = ui::color(enabled ? 0xFFB9C2 : kFaint);
     } else { // ghost
         fill = ui::color(0, 0);
         border = ui::color(0, 0);
@@ -901,7 +975,8 @@ void App::Impl::drawButton(Gdiplus::Graphics& graphics, const RectF& rect,
         }
     }
     if (border.GetA() > 0) ui::strokeRoundRect(graphics, rect, S(10), border);
-    ui::drawText(graphics, label, fonts_.button, text, rect, ui::TextAlign::Center);
+    ui::drawText(graphics, label, fonts_.button, text, rect, ui::TextAlign::Center, false, true,
+                 0, true);
 }
 
 void App::Impl::drawPill(Gdiplus::Graphics& graphics, const RectF& rect,
@@ -917,7 +992,7 @@ void App::Impl::drawPill(Gdiplus::Graphics& graphics, const RectF& rect,
     }
     ui::drawText(graphics, label, fonts_.buttonSmall,
                  ui::color(selected ? kAccentLight : hot ? 0xE7EDFF : kMuted), rect,
-                 ui::TextAlign::Center);
+                 ui::TextAlign::Center, false, true, 0, true);
 }
 
 void App::Impl::drawStatusDot(Gdiplus::Graphics& graphics, float x, float y,
@@ -970,7 +1045,8 @@ void App::Impl::drawStepIcon(Gdiplus::Graphics& graphics, float x, float y, Step
     ui::fillEllipse(graphics, circle, fill);
     Gdiplus::Pen pen(border, 1.0f);
     graphics.DrawEllipse(&pen, circle);
-    ui::drawText(graphics, glyph, *fonts_.smallBoldText, symbol, circle, ui::TextAlign::Center);
+    ui::drawText(graphics, glyph, *fonts_.smallBoldText, symbol, circle, ui::TextAlign::Center,
+                 false, true, 0, true);
 }
 
 void App::Impl::drawHome(Gdiplus::Graphics& graphics, float width, float height, float top) {
@@ -1194,7 +1270,7 @@ void App::Impl::drawReady(Gdiplus::Graphics& graphics, float width, float height
     ui::strokeRoundRect(graphics, pill, S(13), ui::color(report_.ready ? kSuccess : kWarning, 120));
     drawStatusDot(graphics, pill.X / scale_ + 12, top + 36,
                   ui::color(report_.ready ? kSuccess : kWarning));
-    ui::drawText(graphics, report_.ready ? L"Pacote verificado" : L"Revisar pacote",
+    ui::drawText(graphics, report_.ready ? L"Pacote pronto" : L"Revisar pacote",
                  fonts_.smallBoldText, ui::color(0xDDE7FF), R(pill.X / scale_ + 26, top + 30, 116, 20));
 
     if (gameRunning_) {
@@ -1256,7 +1332,8 @@ void App::Impl::drawSettings(Gdiplus::Graphics& graphics, float width, float hei
     const float w = width - 52 - 52;
     ui::drawText(graphics, L"Configurações", *fonts_.heading, ui::color(kText),
                  R(x, top + 20, w, 30));
-    drawButton(graphics, R(x + w - 110, top + 18, 110, 34), L"Voltar", 1, true, ActBack);
+    drawButton(graphics, R(x + w - 110, top + 18, 110, 34), L"Voltar", 1, !uninstalling_,
+               ActBack);
 
     const float leftWidth = (w - 24) * 0.57f;
     const float rightX = x + leftWidth + 24;
@@ -1309,6 +1386,20 @@ void App::Impl::drawSettings(Gdiplus::Graphics& graphics, float width, float hei
                            !draft_.checkUpdatesOnStart, ActUpdatesOff, 0);
               });
 
+    const bool uninstallEnabled = !gameRunning_ && !installing_ && !uninstalling_ &&
+                                  !externalGameRunning_;
+    drawButton(graphics, R(x, y + 8, 190, 36), L"Desinstalar jogo", 2, uninstallEnabled,
+               ActUninstall);
+    std::wstring uninstallHint = L"Remove dados e assets; saves, configuração, logs e runtime são mantidos.";
+    if (uninstalling_) uninstallHint = L"Aguarde a conclusão da desinstalação.";
+    else if (externalGameRunning_) {
+        uninstallHint = runtimeCheckError_.empty()
+                            ? L"Feche o jogo antes de desinstalar."
+                            : firstLine(runtimeCheckError_);
+    }
+    ui::drawText(graphics, uninstallHint, *fonts_.smallText, ui::color(kFaint),
+                 R(x + 202, y + 10, leftWidth - 202, 34), ui::TextAlign::Left, true);
+
     ui::drawText(graphics, L"Pastas", *fonts_.subheading, ui::color(kText),
                  R(rightX, top + 68, rightW, 24));
     auto pathRow = [&](const std::wstring& label, const fs::path& path, int action, float rowY) {
@@ -1339,9 +1430,9 @@ void App::Impl::drawSettings(Gdiplus::Graphics& graphics, float width, float hei
                  ui::TextAlign::Left, true);
 
     const float buttonsY = top + cardHeight - 58;
-    drawButton(graphics, R(x + w - 130, buttonsY, 130, 40), L"Salvar", 0, true,
+    drawButton(graphics, R(x + w - 130, buttonsY, 130, 40), L"Salvar", 0, !uninstalling_,
                ActSaveSettings);
-    drawButton(graphics, R(x + w - 272, buttonsY, 130, 40), L"Cancelar", 1, true,
+    drawButton(graphics, R(x + w - 272, buttonsY, 130, 40), L"Cancelar", 1, !uninstalling_,
                ActCancelSettings);
     if (draft_.renderScale != settings_.renderScale ||
         draft_.gpuRenderer != settings_.gpuRenderer ||
@@ -1563,9 +1654,10 @@ void App::Impl::setUpdateModal(UpdateModalState state) {
 }
 
 void App::Impl::refreshPackage() {
-    report_ = inspectPackage(layout_);
+    if (uninstalling_) return;
+    report_ = inspectPackageForLaunch(layout_);
     if (report_.ready) {
-        setNotice(L"Pacote verificado: o jogo está pronto para abrir.", NoticeSuccess);
+        setNotice(L"Pacote pronto: o jogo está pronto para abrir.", NoticeSuccess);
         if (page_ == PageHome) setPage(PageReady);
     } else {
         std::wstring message = L"O pacote ainda está incompleto.";
@@ -1582,7 +1674,7 @@ void App::Impl::refreshPackage() {
 }
 
 bool App::Impl::canInstall() const {
-    return isoValid_ && !installing_;
+    return !isoPath_.empty() && !installing_ && !uninstalling_;
 }
 
 bool App::Impl::validateSelectedIso() {
@@ -1619,8 +1711,8 @@ bool App::Impl::validateSelectedIso() {
 }
 
 void App::Impl::startInstall() {
-    if (installing_) return;
-    if (isoPath_.empty() || !isoValid_) {
+    if (installing_ || uninstalling_) return;
+    if (isoPath_.empty() || (!isoValid_ && !validateSelectedIso())) {
         setNotice(L"Selecione e valide uma imagem de disco NTSC-U antes de instalar.",
                   NoticeWarning);
         return;
@@ -1688,6 +1780,92 @@ void App::Impl::cancelInstall() {
     if (installCancel_) installCancel_->cancel();
 }
 
+void App::Impl::startUninstall() {
+    if (uninstalling_ || installing_ || gameRunning_) return;
+
+    std::wstring processError;
+    externalGameRunning_ = runtimeProcessRunning(layout_, processError);
+    runtimeCheckError_ = processError;
+    if (externalGameRunning_) {
+        setNotice(processError.empty() ? L"Feche o jogo antes de desinstalar." : processError,
+                  NoticeWarning);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
+
+    const std::wstring confirmation =
+        L"Desinstalar os dados e os assets gerados do jogo?\n\n"
+        L"Serão removidos:\n" +
+        layout_.gameDir.wstring() + L"\n" + layout_.assetsDir.wstring() +
+        L"\n\nSerão mantidos: launcher, runtime, saves, configuração e logs.\n"
+        L"Para jogar novamente, será necessário selecionar e instalar a ISO.";
+    if (MessageBoxW(hwnd_, confirmation.c_str(), L"Desinstalar jogo",
+                    MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES) {
+        return;
+    }
+
+    uninstalling_ = true;
+    setNotice(L"Desinstalando dados do jogo. Os saves e o runtime serão mantidos.", NoticeInfo);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+
+    const Layout layout = layout_;
+    const HWND hwnd = hwnd_;
+    try {
+        uninstallThread_ = std::thread([layout, hwnd]() {
+            auto outcome = std::make_unique<UninstallOutcome>();
+            try {
+                outcome->ok = uninstallGame(layout, outcome->error);
+            } catch (const std::exception& exception) {
+                outcome->error = L"Falha inesperada na desinstalação: " +
+                                 toWide(exception.what());
+            } catch (...) {
+                outcome->error = L"Falha inesperada na desinstalação.";
+            }
+            PostMessageW(hwnd, WM_APP_UNINSTALL_DONE, 0,
+                         reinterpret_cast<LPARAM>(outcome.release()));
+        });
+    } catch (const std::exception& exception) {
+        uninstalling_ = false;
+        setNotice(L"Não foi possível iniciar a desinstalação: " + toWide(exception.what()),
+                  NoticeError);
+    }
+}
+
+void App::Impl::handleUninstallDone(std::unique_ptr<UninstallOutcome> outcome) {
+    if (uninstallThread_.joinable()) uninstallThread_.join();
+    uninstalling_ = false;
+    externalGameRunning_ = false;
+    runtimeCheckError_.clear();
+    isoPath_.clear();
+    isoValid_ = false;
+    isoStatus_.clear();
+    isoDetail_.clear();
+    refreshPackage();
+    setPage(PageHome);
+
+    if (outcome->ok) {
+        setNotice(L"Jogo desinstalado. Saves, configuração, logs e runtime foram mantidos.",
+                  NoticeSuccess);
+        logInfo(L"Desinstalação concluída; saves, configuração, logs e runtime preservados.");
+        MessageBoxW(hwnd_,
+                    L"Os dados do jogo foram removidos.\n\n"
+                    L"Saves, configuração, logs e runtime foram mantidos.\n"
+                    L"Para jogar novamente, selecione e instale a ISO.",
+                    kWindowTitle, MB_OK | MB_ICONINFORMATION);
+    } else {
+        setNotice(L"Não foi possível concluir a desinstalação: " + firstLine(outcome->error),
+                  NoticeError);
+        logError(L"Falha na desinstalação: " + outcome->error);
+        MessageBoxW(hwnd_,
+                    (L"Não foi possível concluir a desinstalação:\n" + outcome->error +
+                     L"\n\nAlguns dados podem ter sido removidos. Saves, configuração, logs e "
+                     L"runtime não fazem parte da remoção.")
+                        .c_str(),
+                    kWindowTitle, MB_OK | MB_ICONERROR);
+    }
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void App::Impl::handleInstallEvent(std::unique_ptr<InstallEvent> event) {
     const int index = static_cast<int>(event->step);
     if (index >= 0 && index < 5) {
@@ -1721,7 +1899,7 @@ void App::Impl::handleInstallDone(std::unique_ptr<InstallResult> result) {
         setPage(PageReady);
         setNotice(L"Instalação concluída. O jogo está pronto para abrir.", NoticeSuccess);
     } else {
-        report_ = inspectPackage(layout_);
+        report_ = inspectPackageForLaunch(layout_);
         if (result->cancelled) {
             setNotice(L"Instalação cancelada. Os arquivos já extraídos foram mantidos.",
                       NoticeWarning);
@@ -1746,8 +1924,8 @@ bool App::Impl::saveSettings() {
 }
 
 void App::Impl::startGame() {
-    if (gameRunning_) return;
-    report_ = inspectPackage(layout_);
+    if (gameRunning_ || uninstalling_) return;
+    report_ = inspectPackageForLaunch(layout_);
     if (!report_.ready) {
         setNotice(L"O pacote precisa ser concluído antes de abrir o jogo.", NoticeError);
         refreshPackage();
@@ -1844,6 +2022,8 @@ void App::Impl::bringGameToFront() {
 void App::Impl::handleGameExited(DWORD exitCode) {
     gameRunning_ = false;
     gamePid_ = 0;
+    externalGameRunning_ = false;
+    runtimeCheckError_.clear();
     refreshPackage();
     if (exitCode == 0 || exitCode == 0xFFFFFFFFu) {
         setNotice(L"O jogo foi fechado.", NoticeInfo);
@@ -1917,8 +2097,13 @@ void App::Impl::handleUpdateDone(std::unique_ptr<UpdateOutcome> outcome) {
 
 void App::Impl::startDownload() {
     if (downloading_) return;
-    const std::wstring installerName =
-        L"DisneySkateSetup-" DISNEY_LAUNCHER_VERSION_STRING L".exe";
+    const std::wstring installerName = installerNameForTag(release_.tag);
+    if (installerName.empty()) {
+        updateError_ = L"A tag da atualização não produz um nome de instalador válido.";
+        setNotice(updateError_, NoticeError);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     const ReleaseAsset* asset = nullptr;
     for (const ReleaseAsset& candidate : release_.assets) {
         if (candidate.name != installerName) continue;
@@ -1936,6 +2121,12 @@ void App::Impl::startDownload() {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return;
     }
+    if (asset->size == 0 || asset->size > 512ULL * 1024 * 1024) {
+        updateError_ = L"O tamanho do instalador informado pelo release é inválido.";
+        setNotice(updateError_, NoticeError);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+    }
     const fs::path destination = fs::temp_directory_path() / installerName;
     downloading_ = true;
     downloadPercent_ = 0;
@@ -1945,13 +2136,15 @@ void App::Impl::startDownload() {
 
     const HWND target = hwnd_;
     const std::wstring url = asset->downloadUrl;
+    const std::wstring releaseTag = release_.tag;
+    const uint64_t releaseSize = asset->size;
     auto cancel = downloadCancel_;
-    std::thread([target, url, destination, cancel]() {
+    std::thread([target, url, destination, cancel, releaseTag, installerName, releaseSize]() {
         auto outcome = std::make_unique<DownloadOutcome>();
         auto lastPercent = std::make_shared<std::atomic<int>>(-1);
         std::wstring error;
         outcome->ok = downloadReleaseAsset(
-            url, destination, *cancel,
+            url, destination, releaseTag, installerName, releaseSize, *cancel,
             [&](uint64_t done, uint64_t total) {
                 const int percent = total ? static_cast<int>(done * 100 / total) : 0;
                 const int previous = lastPercent->exchange(percent);
@@ -2120,6 +2313,7 @@ void App::Impl::copyDiagnostics() {
 }
 
 void App::Impl::onAction(int action, int value) {
+    if (uninstalling_) return;
     switch (action) {
     case ActSelectIso: {
         wchar_t file[32768]{};
@@ -2188,7 +2382,12 @@ void App::Impl::onAction(int action, int value) {
         break;
     case ActSettings:
         draft_ = settings_;
+        runtimeCheckError_.clear();
+        externalGameRunning_ = gameRunning_ || runtimeProcessRunning(layout_, runtimeCheckError_);
         setPage(PageSettings);
+        break;
+    case ActUninstall:
+        startUninstall();
         break;
     case ActUpdates:
         setPage(PageUpdates);

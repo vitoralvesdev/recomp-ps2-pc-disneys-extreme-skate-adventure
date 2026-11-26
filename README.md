@@ -2,7 +2,7 @@
 
 ![Capa de Disney's Extreme Skate Adventure para PlayStation 2](docs/capa-jogo.png)
 
-> **Estado: em desenvolvimento — atualizado em 24/11/2026.**
+> **Estado: em desenvolvimento — atualizado em 26/11/2026.**
 > Nos testes locais, o projeto já abre o menu, permite escolher personagem e chega ao HUB e a uma fase de Toy Story. Ainda não é um port completo: algumas fases podem travar, o carregamento pode demorar e vários recursos ainda precisam de validação.
 
 ## O que é este projeto?
@@ -15,12 +15,12 @@ Não é um emulador como o PCSX2: o código do jogo é convertido antecipadament
 
 ## Progresso da recompilação
 
-Atualizado em **24/11/2026**. O percentual só é usado quando existe um denominador conhecido; **não mensurável** não significa 0%.
+Atualizado em **26/11/2026**. O percentual só é usado quando existe um denominador conhecido; **não mensurável** não significa 0%.
 
 | Componente | Progresso | O que já está feito | O que ainda impede 100% |
 | --- | --- | --- | --- |
 | **EE (R5900)** | **100% da exportação rastreada** | 9.390 funções no escopo Ghidra, incluindo 55 stubs de runtime; 41.864 handlers únicos na tabela AOT; nenhuma entrada ignorada na exportação. Metadados em [recomp/ghidra.toml](recomp/ghidra.toml). | Validar e corrigir os caminhos executados, tratar os stubs e tornar o build AOT reproduzível sem os arquivos locais. |
-| **VU0** | **Não mensurável globalmente** | 1 imagem registrada (`A71F9755…`) e 27 blocos rápidos gerados. O kernel de colisão da entrada `0x7e8` passou na regressão offline com 10 casos, incluindo chão, rampa, erros, limites e winding invertido. | Inventariar as demais imagens e validar colisão, rampas e objetos durante o jogo. |
+| **VU0** | **Não mensurável globalmente** | 1 imagem registrada (`A71F9755…`) e 27 blocos rápidos gerados. O caminho EE `0x109f48 → VU0 0x7e8` passou na regressão offline do wrapper e do runtime com 10 casos, incluindo chão, rampa, erros, limites e winding invertido. | Inventariar as demais imagens e validar colisão, rampas e objetos durante o jogo. |
 | **VU1** | **Não mensurável globalmente** | 1 imagem registrada (`87BD03B7…`) e 254 blocos rápidos gerados, usados pelo runtime AOT. | Cobrir as variantes de microprograma e validar os jobs em todas as fases e telas. |
 | **VIF0 / VIF1** | **Parcial, sem percentual** | Parser de comandos, DMA direto/em chain e regressões de endereço inválido e END vazio. | Medir cobertura de todos os opcodes/caminhos e validar o fluxo gráfico de ponta a ponta. |
 | **GIF / GS** | **Parcial, sem percentual** | Backend OpenGL 3.3, worker GPU e testes sintéticos de contrato GPU e de pacotes GIF. | Comprovar equivalência visual completa, transparência, profundidade e frames em todas as fases. |
@@ -42,23 +42,24 @@ A medição de 23/11 está documentada no histórico do projeto, mas sua captura
 
 - **Menus e início do jogo:** menu, seleção de personagem, HUB e entrada em uma fase de Toy Story foram registrados em sessões locais.
 - **Desempenho:** correções no VU0 melhoraram o fluxo de imagens. Em `ToyStory_Bedroom`, a média foi de **59,98 quadros por segundo (FPS)** em 8 amostras, perto do alvo de 60 FPS. Isso ainda precisa ser confirmado nas outras fases.
-- **Launcher experimental:** o programa de instalação exige o `BOOT2` exato e o SHA-256 de referência do ELF americano `SLUS_206.07`, extrai os arquivos com progresso, compara extrações por hash, configura o jogo e mostra logs. O pacote recebe um manifesto SHA-256 verificado antes de liberar o jogo. A verificação manual de atualizações mostra carregamento e um modal quando não há versão nova.
-- **Atualizações mais seguras:** o launcher só aceita HTTPS, baixa apenas o instalador oficial esperado, confere o tamanho e a impressão digital SHA-256 e exige uma assinatura digital confiável do Windows antes de executar.
+- **Carregamento de fases:** a instrumentação por etapa separou resolução e leitura de arquivo, `sceCdRead`, espera de streaming e descompressão. O log existente registrou leitura de 0–17 ms, enquanto uma amostra de 1 s concentrou cerca de 93% do tempo quente em `FUN_00270f58` (`0x270f58`), o descompressor LZSS de dicionário de 4 KiB usado pelos carregadores de arquivo. Ele foi substituído por código nativo equivalente, com retomada cooperativa a cada 1 KiB de saída. `DisneyNativeLoadDecompressTest` passou para literais, backreferences, wrap do dicionário, entrada vazia, retomadas cooperativas e os cinco handlers internos de retomada; a eliminação do hitch ainda precisa ser medida no jogo.
+- **Launcher experimental:** o programa de instalação exige o `BOOT2` exato e o SHA-256 de referência do ELF americano `SLUS_206.07`, extrai os arquivos com progresso, compara extrações por hash, configura o jogo e mostra logs. O pacote recebe um manifesto SHA-256; a abertura usa uma checagem rápida dos componentes, sem recalcular todos os hashes, e `--verificar` mantém a auditoria integral. Depois de recompilar o runtime, `--atualizar-manifesto` regera o manifesto sem pedir a ISO novamente. **Configurações → Desinstalar jogo** remove dados e assets gerados após confirmação, preservando launcher, runtime, saves, configuração e logs; bloqueios transitórios de arquivos são repetidos por alguns segundos. A verificação manual de atualizações mostra carregamento e um modal quando não há versão nova.
+- **Atualizações mais seguras:** o launcher só aceita HTTPS e deriva o nome do instalador da tag do release, conferindo a URL oficial e o tamanho anunciado pelo GitHub. Antes de executar, exige uma assinatura Authenticode confiável do Windows; a publicação do `Setup.exe` 0.4.0 ainda depende dessa assinatura.
 - **Cartão de memória (memory card):** caminhos com drive, caminhos absolutos do Windows, caminhos que tentam sair da pasta (`..`) ou links externos agora são bloqueados. Leituras e escritas também verificam o intervalo inteiro de memória.
 - **Controles:** teclado e controle têm mapeamento inicial, com posições baseadas em um controle tipo Xbox.
 - **Gráficos e áudio:** menus e cenas são exibidos e testes básicos de textura passaram. Em 24/11/2026, o som inicial e o áudio da gameplay foram confirmados funcionando no jogo. A fidelidade visual e a cobertura integral do áudio ainda não estão validadas.
-- **Build do launcher:** compila separadamente, sem ISO ou código gerado do jogo. A última execução local passou em **100 verificações, sem falhas**, incluindo a validação da ISO americana e da extração existente.
-- **Áudio pela ISO:** o instalador não exige pacotes externos; converte VAGs/streams e recupera as músicas de `MUSIC.WAD` da própria imagem selecionada. Em 24/11/2026, um teste isolado produziu **1.285 entradas** — 393 efeitos, 855 streams e 37 músicas — sem erros de conversão, arquivos ausentes ou músicas pendentes.
+- **Build do launcher:** compila separadamente, sem ISO ou código gerado do jogo. Em 26/11/2026, a compilação Release e o CTest passaram 1/1, incluindo os testes de desinstalação e preservação de saves; a integração automatizada com ISO real foi ignorada porque `DISNEY_TEST_ISO` não estava definida. O ciclo real pela interface também foi concluído: a desinstalação removeu jogo, assets e intermediários, preservou os saves e manteve os hashes do runtime e do `config.ini`; a reinstalação restaurou o pacote e `--verificar` conferiu 7.566 arquivos.
+- **Áudio pela ISO:** o instalador não exige pacotes externos; converte VAGs/streams e recupera as músicas de `MUSIC.WAD` da própria imagem selecionada. Em 26/11/2026, após a desinstalação, a preparação no projeto real produziu **1.285 entradas** — 393 efeitos, 855 streams e 37 músicas — sem erros de conversão, arquivos ausentes ou músicas pendentes. A preparação nativa também foi repetida: o conversor COL v8 compilou sem erros e 272 colisões foram convertidas.
 - **Vídeos da abertura:** os cinco `.PSS` iniciais contêm vídeo MPEG-2 e áudio SS2/PCM incorporado. O leitor foi validado offline em todos eles como PCM16 little-endian, 48 kHz e estéreo; a quantidade de áudio decodificada corresponde exatamente ao tamanho declarado em cada arquivo. O áudio agora é entregue continuamente ao backend Windows, e os frames são gravados no guest como macroblocos RGBA 16×16 column-major, com pixels row-major e stride de `0x400` bytes por bloco, conforme o consumidor original. O ELF contém caminhos genéricos `host`/`hdd` do motor, mas não há evidência de dependência de áudio externo nessa abertura. Em 24/11/2026, o áudio inicial foi confirmado funcionando no jogo; a apresentação visual e a mixagem completa ainda precisam de validação.
 - **Auditoria de recursos:** os 26 `.PSS` nomeados no ELF têm correspondente extraído, e todos contêm o mesmo cabeçalho de áudio SS2. O diretório real da ISO não contém duas referências explícitas do ELF: `IOP/USBKB.IRX` e `IOP/DIAL_SPD.CNF`. As strings vizinhas de `USBKB.IRX` indicam teclado USB/debug; `DIAL_SPD.CNF` aparece em `dial=cdrom0:\IOP\DIAL_SPD.CNF;1`. Nenhuma das duas tem relação conhecida com a abertura, mas classificar seus fluxos como opcionais exige os XREFs no Ghidra.
 - **Handlers originais copiados:** o runtime registra os blocos do kernel copiados para `0x80075000` e `0x80076000`, com aliases físicos/KSEG0 e retomada nos pontos internos. Os testes confirmam a tabela original de syscalls, o despacho dos handlers e a chamada aninhada `0x75158 → 0x3042ac`.
-- **Falhas de runtime explícitas:** syscalls desconhecidos retornam erro e funções EE ausentes param por padrão; DMA GIF/VIF direto ou em chain com endereço inválido não sinaliza conclusão nem IRQ.
-- **Dados de colisão:** o preparador já converte os arquivos de colisão COL v8 das fases extraídas. O kernel VU0 original (entrada `0x7e8`) tem regressão offline para chão, rampa, acertos e erros, limites do segmento, triângulo degenerado, bordas e winding invertido. Isso ainda não comprova que rampas e objetos estejam corretos durante o jogo.
+- **Falhas de runtime explícitas:** syscalls desconhecidos retornam erro e funções EE ausentes param por padrão; DMA GIF/VIF direto ou em chain com endereço inválido não sinaliza conclusão nem IRQ. Em 25/11/2026, registro, remoção e habilitação inválidos de IRQ, `Deci2Call` indisponível e `sceSifSetDChain` não implementado passaram a retornar erro explícito; OSD e descritores SIF DMA validam o intervalo guest completo. O build Release e o teste `runtime_flow` (1/1) passaram.
+- **Dados de colisão:** o preparador já converte os arquivos de colisão COL v8 das fases extraídas. O caminho original `0x109f48 → VU0 0x7e8` tem regressão offline pelo wrapper EE e pelo runtime para chão, rampa, acertos e erros, limites do segmento, triângulo degenerado, bordas e winding invertido. Os laços EE `0x10c228` e `0x10c908` percorrem toda a lista devolvida pela broadphase, sem descarte explícito por rampa ou tipo de objeto; a filtragem restante usa máscaras de flags e callbacks. Isso ainda não comprova que rampas e objetos estejam corretos durante o jogo.
 
 ## O que ainda precisa melhorar
 
 1. **Validação completa do jogo:** testar todas as fases, personagens, ações, salvamentos e telas do início ao fim.
-2. **Carregamento:** algumas fases podem parar. Foi registrada uma espera de cerca de 15 segundos ao entrar em uma fase, e a causa ainda não foi isolada.
+2. **Carregamento:** o gargalo associado à espera de cerca de 15 segundos foi isolado no descompressor de assets, não na leitura ou sincronização de CD. A substituição nativa e os quatro testes registrados passaram, e o runtime foi recompilado; falta repetir a medição de entrada em uma fase no jogo para confirmar o tempo real.
 3. **Desempenho nas demais fases:** repetir a mesma medição controlada no HUB e nas outras etapas.
 4. **Colisão:** confirmar rampas, objetos e intersecções no jogo recompilado, especialmente nas fases de Toy Story.
 5. **Áudio:** o som inicial e o áudio da gameplay estão funcionando, mas ainda é necessário validar a mixagem em partidas completas. A varredura atual não encontrou WAVs vazios ou ausentes no catálogo, mas os logs ainda registram `couldn't load` para sons que existem no catálogo; a causa dessa divergência não foi isolada.
@@ -85,7 +86,11 @@ Você precisa de uma **cópia legal da versão americana de PlayStation 2 (NTSC-
 
 A extração é incremental e só pula arquivos cujo tamanho e SHA-256 coincidem com a ISO. O manifesto `package-manifest.sha256` cobre runtime, dados do jogo e assets, exclui saves e é regerado ao final da instalação. A ISO não é enviada para a internet.
 
+Alterações no launcher não exigem reinstalar a ISO. Depois de substituir o runtime ou os assets, execute `--atualizar-manifesto` para sincronizar o manifesto; a ISO só é necessária novamente ao instalar ou restaurar os dados extraídos. Em **Configurações → Desinstalar jogo**, o launcher remove os dados e os assets gerados após confirmação, mas preserva o launcher, o runtime, os saves, a configuração e os logs. No modo portátil, a pasta do jogo e `original\extracted\mc0` também são mantidas para não ocultar os saves. O cache do .NET e os temporários de compilação ficam em `analysis\preparation`, fora da área removida.
+
 **Importante:** um clone limpo compila o launcher, mas ainda não monta sozinho o programa principal e os arquivos preparados do jogo. Essas etapas continuam usando os scripts e arquivos gerados do ambiente de desenvolvimento.
+
+Para diagnosticar o carregamento do runtime, execute-o com a variável de ambiente `PS2X_CD_LOAD_TRACE=1`; os logs `[cd-load]` separam resolução, leitura, `sceCdRead`, espera de streaming e descompressão.
 
 ## Controles
 
@@ -139,7 +144,8 @@ O workflow Windows executa esse mesmo alvo e os testes. Veja [docs/launcher.md](
 
 | Comando | Efeito |
 | --- | --- |
-| `"Disney's Extreme Skate Adventure.exe" --verificar` | Verifica o pacote e retorna 0 (pronto) ou 2 (incompleto); não testa gameplay |
+| `"Disney's Extreme Skate Adventure.exe" --verificar` | Audita componentes e hashes SHA-256; retorna 0 (válido) ou 2 (falha); não testa gameplay |
+| `"Disney's Extreme Skate Adventure.exe" --atualizar-manifesto` | Regera o manifesto do pacote atual após uma recompilação do runtime |
 | `"Disney's Extreme Skate Adventure.exe" --iso <imagem> --verificar` | Valida somente a ISO escolhida |
 | `"Disney's Extreme Skate Adventure.exe" --instalar <imagem>` | Instala sem interface, útil para automação |
 | `"Disney's Extreme Skate Adventure.exe" --diagnostico` | Sessão normal com relatórios em `analysis/hang-reports` |
@@ -165,7 +171,7 @@ Com o Inno Setup 6, o script abaixo gera um instalador local:
 .\scripts\Empacotar-Instalador.ps1
 ```
 
-O resultado fica em `dist\DisneySkateSetup-0.3.0.exe`. Ele ainda não está assinado e inclui os scripts/fontes próprios de preparação, mas não a ISO, os dados do jogo, áudio derivado, assets gerados nem ferramentas de terceiros. A primeira instalação valida os pré-requisitos antes da extração; o áudio é convertido dos VAGs, streams e faixas da própria ISO. A conversão de assets continua dependendo de Python 3.9–3.12, SDK .NET 9, Neversoft Multitool CLI v1.3.4, CMake e Visual Studio 2022 com C++.
+O resultado fica em `dist\DisneySkateSetup-0.4.0.exe`. Ele ainda não está assinado e inclui os scripts/fontes próprios de preparação, mas não a ISO, os dados do jogo, áudio derivado, assets gerados nem ferramentas de terceiros. A primeira instalação valida os pré-requisitos antes da extração; o áudio é convertido dos VAGs, streams e faixas da própria ISO. A conversão de assets continua dependendo de Python 3.9–3.12, SDK .NET 9, Neversoft Multitool CLI v1.3.4, CMake e Visual Studio 2022 com C++. O conversor COL v8 usa um cache NuGet isolado por execução para evitar bloqueios compartilhados em `%TEMP%\NuGetScratch`.
 
 ### Medição de desempenho de 23/11/2026
 

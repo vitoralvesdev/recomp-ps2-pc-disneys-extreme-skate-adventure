@@ -9,6 +9,7 @@ foreach(required_path
 endforeach()
 include("${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.legacy.txt")
 target_sources(runtime_flow_test PRIVATE
+ "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00109f48_0x109f48.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/entry_303910_0x303948.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/FUN_00303f90_0x303f90.cpp"
  "${CMAKE_CURRENT_SOURCE_DIR}/src/generated-ghidra/entry_3040b8_0x3040f0.cpp"
@@ -92,6 +93,13 @@ get_target_property(disney_pad_sources ps2_runtime SOURCES)
 list(FILTER disney_pad_sources EXCLUDE REGEX "Kernel/Stubs/Pad[.]cpp$")
 set_property(TARGET ps2_runtime PROPERTY SOURCES "${disney_pad_sources}")
 target_sources(ps2_runtime PRIVATE native/original/input/native_pad_services.cpp)
+
+target_sources(ps2_runtime PRIVATE native/original/load/ps2_load_decompress.cpp)
+add_executable(DisneyNativeLoadDecompressTest tests/native_load_decompress_test.cpp)
+target_link_libraries(DisneyNativeLoadDecompressTest PRIVATE ps2_runtime)
+set_target_properties(DisneyNativeLoadDecompressTest PROPERTIES
+ RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/dist/native-tools")
+add_test(NAME native_load_decompress COMMAND DisneyNativeLoadDecompressTest)
 
 # Disney native GPU qualification (offline replay only until validated).
 add_library(DisneyNativeGpu STATIC

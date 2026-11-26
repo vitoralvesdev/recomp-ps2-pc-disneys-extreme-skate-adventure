@@ -10,12 +10,15 @@
 #include "child_process.h"
 #include "update.h"
 #include "validate.h"
+#include "version.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <process.h>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -131,6 +134,37 @@ void testVersions() {
     CHECK(ds::compareVersions(L"0.3.0", L"v0.3.0") == 0);
     CHECK(ds::compareVersions(L"1.0.0", L"1.0.0-beta") > 0);
     CHECK(ds::compareVersions(L"1.2", L"1.2.0") == 0);
+    CHECK(ds::installerNameForTag(L"v0.4.0") == L"DisneySkateSetup-0.4.0.exe");
+    CHECK(ds::installerNameForTag(L"0.4.0") == L"DisneySkateSetup-0.4.0.exe");
+    CHECK(ds::installerNameForTag(L"v0.10.12") == L"DisneySkateSetup-0.10.12.exe");
+    CHECK(ds::installerNameForTag(L"").empty());
+    CHECK(ds::installerNameForTag(L"v").empty());
+    CHECK(ds::installerNameForTag(L"v0.4.0/evil").empty());
+    CHECK(ds::installerNameForTag(L"v0.4.0-beta").empty());
+    CHECK(ds::installerNameForTag(L"v0..4").empty());
+
+    TempDir temp;
+    ds::CancelToken cancel;
+    std::wstring error;
+    const std::wstring assetName = L"DisneySkateSetup-0.4.0.exe";
+    const std::wstring releasePath =
+        L"/" DISNEY_LAUNCHER_REPOSITORY_OWNER L"/" DISNEY_LAUNCHER_REPOSITORY_NAME
+        L"/releases/download/v0.4.0/";
+    CHECK(!ds::downloadReleaseAsset(L"https://github.com" + releasePath + assetName,
+                                    temp.path / assetName, L"v0.4.0", assetName, 0,
+                                    cancel, {}, error));
+    CHECK(!ds::downloadReleaseAsset(L"http://github.com" + releasePath + assetName,
+                                    temp.path / assetName, L"v0.4.0", assetName, 123,
+                                    cancel, {}, error));
+    CHECK(!ds::downloadReleaseAsset(L"https://github.com" + releasePath + L"Other.exe",
+                                    temp.path / assetName, L"v0.4.0", assetName, 123,
+                                    cancel, {}, error));
+    CHECK(!ds::downloadReleaseAsset(
+        L"https://github.com" +
+            std::wstring(L"/" DISNEY_LAUNCHER_REPOSITORY_OWNER L"/"
+                         DISNEY_LAUNCHER_REPOSITORY_NAME L"/releases/download/v0.3.0/") +
+            assetName,
+        temp.path / assetName, L"v0.4.0", assetName, 123, cancel, {}, error));
 }
 
 void testConfig() {
@@ -238,7 +272,11 @@ void testPackage() {
                                   L"MCMAN.IRX", L"MCSERV.IRX", L"EZPCM.IRX"}) {
         writeFilledFile(layout.gameDir / L"IOP" / module, 2048);
     }
-    const std::string catalog = "sfx/test\tassets/native/audio/files/test.wav\t0\t0\n";
+    std::string catalog = "sfx/test\tassets/native/audio/files/test.wav\t0\t0\n";
+    for (int i = 0; i < 37; ++i) {
+        catalog += "music/test" + std::to_string(i) +
+                   "\tassets/native/audio/files/test.wav\t0\t0\n";
+    }
     writeBytes(layout.assetsDir / L"native" / L"audio" / L"catalog.tsv", catalog.data(),
                catalog.size());
     writeFilledFile(layout.assetsDir / L"native" / L"audio" / L"files" / L"test.wav", 128);
@@ -257,9 +295,17 @@ void testPackage() {
     CHECK_MSG(report.ready, L"erros: " + std::to_wstring(report.errorCount));
     CHECK(report.errorCount == 0);
     CHECK(report.find(L"Manifesto SHA-256") != nullptr);
+    CHECK(ds::inspectPackageForLaunch(layout, bootHash).ready);
 
     std::error_code ec;
     CHECK(ds::runtimeFilesReady(layout));
+    const std::string baseCatalog = catalog.substr(0, catalog.find('\n') + 1);
+    writeBytes(layout.assetsDir / L"native" / L"audio" / L"catalog.tsv", baseCatalog.data(),
+               baseCatalog.size());
+    CHECK(!ds::audioCatalogComplete(layout, error));
+    writeBytes(layout.assetsDir / L"native" / L"audio" / L"catalog.tsv", catalog.data(),
+               catalog.size());
+    CHECK_MSG(ds::audioCatalogComplete(layout, error), error);
     std::filesystem::remove(layout.assetsDir / L"native" / L"audio" / L"files" / L"test.wav", ec);
     report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
@@ -283,6 +329,7 @@ void testPackage() {
     report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
     CHECK(report.find(L"Manifesto SHA-256") != nullptr);
+    CHECK(ds::inspectPackageForLaunch(layout, bootHash).ready);
     writePeFile(layout.runtimeDir / L"avutil-59.dll");
 
     const std::filesystem::path unlisted = layout.runtimeDir / L"unlisted.bin";
@@ -303,6 +350,7 @@ void testPackage() {
     std::filesystem::remove(layout.stateDir / L"package-manifest.sha256", ec);
     report = ds::inspectPackage(layout, bootHash);
     CHECK(!report.ready);
+    CHECK(ds::inspectPackageForLaunch(layout, bootHash).ready);
     CHECK_MSG(ds::writePackageManifest(layout, bootHash, error), error);
     CHECK(ds::inspectPackage(layout, bootHash).ready);
 
@@ -311,6 +359,197 @@ void testPackage() {
     CHECK(!report.ready);
     CHECK_MSG(ds::writePackageManifest(layout, bootHash, error), error);
     CHECK(ds::inspectPackage(layout, bootHash).ready);
+}
+
+void testUninstall() {
+    std::wstring error;
+    auto installedLayout = [](const std::filesystem::path& root) {
+        ds::Layout layout;
+        layout.exePath = root / L"app" / L"launcher.exe";
+        layout.exeDir = layout.exePath.parent_path();
+        layout.dataRoot = root / L"user-data";
+        layout.gameDir = layout.dataRoot / L"game";
+        layout.runtimeDir = layout.dataRoot / L"runtime";
+        layout.assetsDir = layout.dataRoot / L"assets";
+        layout.savesDir = layout.dataRoot / L"saves" / L"profile-1";
+        layout.logsDir = layout.dataRoot / L"logs";
+        layout.stateDir = layout.dataRoot / L"launcher";
+        layout.configPath = layout.stateDir / L"config.ini";
+        return layout;
+    };
+    auto portableLayout = [](const std::filesystem::path& root, bool legacy) {
+        ds::Layout layout;
+        layout.exePath = root / L"launcher.exe";
+        layout.exeDir = root;
+        layout.dataRoot = root;
+        layout.gameDir = legacy ? root / L"original" / L"extracted" : root / L"game";
+        layout.runtimeDir = root / L"runtime";
+        layout.assetsDir = root / L"assets";
+        layout.savesDir = layout.gameDir / L"mc0";
+        layout.logsDir = root / L"analysis";
+        layout.stateDir = layout.logsDir / L"launcher";
+        layout.configPath = layout.stateDir / L"config.ini";
+        layout.portable = true;
+        return layout;
+    };
+    auto populate = [](const ds::Layout& layout) {
+        writeFilledFile(layout.exePath, 16);
+        writeFilledFile(layout.runtimeExe(), 512);
+        writeFilledFile(layout.gameElf(), 128);
+        writeFilledFile(layout.gameDir / L"SKATE4.HED", 64);
+        writeFilledFile(layout.assetsDir / L"native" / L"spawn.txt", 32);
+        writeFilledFile(layout.savesDir / L"save.bin", 24);
+        writeFilledFile(layout.launcherLog(), 48);
+        writeFilledFile(layout.configPath, 40);
+        writeFilledFile(layout.stateDir / L"package-manifest.sha256", 56);
+        writeFilledFile(layout.installStatePath(), 72);
+        writeFilledFile(layout.dataRoot / L"build" / L"setup" / "intermediate.bin", 80);
+        writeFilledFile(layout.dataRoot / L"analysis" / L"relatorio.json", 96);
+        writeFilledFile(layout.dataRoot / L"tools" / L"ferramenta.exe", 112);
+    };
+
+    {
+        TempDir temp;
+        const ds::Layout layout = installedLayout(temp.path);
+        populate(layout);
+        CHECK_MSG(ds::uninstallGame(layout, error), error);
+        CHECK(!std::filesystem::exists(layout.gameDir));
+        CHECK(!std::filesystem::exists(layout.assetsDir));
+        CHECK(!std::filesystem::exists(layout.dataRoot / L"build" / L"setup"));
+        CHECK(std::filesystem::exists(layout.runtimeExe()));
+        CHECK(std::filesystem::exists(layout.savesDir / L"save.bin"));
+        CHECK(std::filesystem::exists(layout.configPath));
+        CHECK(std::filesystem::exists(layout.launcherLog()));
+        CHECK(std::filesystem::exists(layout.dataRoot / L"analysis" / L"relatorio.json"));
+        CHECK(std::filesystem::exists(layout.dataRoot / L"tools" / L"ferramenta.exe"));
+        CHECK(!std::filesystem::exists(layout.stateDir / L"package-manifest.sha256"));
+        CHECK(!std::filesystem::exists(layout.installStatePath()));
+        CHECK(!ds::inspectPackageForLaunch(layout).ready);
+        CHECK(!ds::writePackageManifest(layout, {}, error));
+        CHECK_MSG(!error.empty(), L"writePackageManifest deveria recusar o pacote removido");
+        CHECK_MSG(ds::uninstallGame(layout, error), error);
+    }
+
+    for (bool legacy : {true, false}) {
+        TempDir temp;
+        const ds::Layout layout = portableLayout(temp.path, legacy);
+        populate(layout);
+        CHECK_MSG(ds::uninstallGame(layout, error), error);
+        CHECK(std::filesystem::is_directory(layout.gameDir));
+        CHECK(!std::filesystem::exists(layout.gameElf()));
+        CHECK(!std::filesystem::exists(layout.gameDir / L"SKATE4.HED"));
+        CHECK(std::filesystem::exists(layout.savesDir / L"save.bin"));
+        CHECK(std::filesystem::is_directory(layout.assetsDir / L"native"));
+        CHECK(std::filesystem::is_empty(layout.assetsDir / L"native"));
+        CHECK(std::filesystem::exists(layout.runtimeExe()));
+        CHECK(std::filesystem::exists(layout.configPath));
+        CHECK(std::filesystem::exists(layout.launcherLog()));
+        CHECK(!std::filesystem::exists(layout.dataRoot / L"build" / L"setup"));
+        const ds::Layout detected = ds::Layout::detect(layout.exePath);
+        CHECK(detected.portable);
+        CHECK(detected.gameDir == layout.gameDir);
+        CHECK(detected.savesDir == layout.savesDir);
+        CHECK_MSG(ds::uninstallGame(layout, error), error);
+    }
+
+    {
+        TempDir temp;
+        ds::Layout unsafe = installedLayout(temp.path);
+        unsafe.gameDir = unsafe.dataRoot;
+        populate(unsafe);
+        CHECK(!ds::uninstallGame(unsafe, error));
+        CHECK_MSG(!error.empty(), L"layout inseguro deveria retornar erro");
+        CHECK(std::filesystem::exists(unsafe.savesDir / L"save.bin"));
+        CHECK(std::filesystem::exists(unsafe.assetsDir / L"native" / L"spawn.txt"));
+    }
+
+    {
+        TempDir temp;
+        ds::Layout unsafe = installedLayout(temp.path);
+        unsafe.assetsDir = unsafe.logsDir;
+        populate(unsafe);
+        CHECK(!ds::uninstallGame(unsafe, error));
+        CHECK(std::filesystem::exists(unsafe.gameElf()));
+        CHECK(std::filesystem::exists(unsafe.launcherLog()));
+    }
+
+    {
+        TempDir temp;
+        const ds::Layout layout = installedLayout(temp.path);
+        populate(layout);
+        HANDLE locked = CreateFileW(layout.gameElf().c_str(), GENERIC_READ,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+        CHECK(locked != INVALID_HANDLE_VALUE);
+        CHECK(!ds::uninstallGame(layout, error));
+        CHECK(std::filesystem::exists(layout.gameElf()));
+        CHECK_MSG(!error.empty(), L"arquivo bloqueado deveria retornar erro");
+        CloseHandle(locked);
+        CHECK_MSG(ds::uninstallGame(layout, error), error);
+    }
+
+    {
+        TempDir temp;
+        const ds::Layout layout = installedLayout(temp.path);
+        populate(layout);
+        const auto transient = layout.dataRoot / L"build" / L"setup" / L"dotnet-home" /
+                               L"advertising.txt";
+        writeFilledFile(transient, 24);
+        CHECK(SetFileAttributesW(transient.c_str(), FILE_ATTRIBUTE_READONLY));
+        HANDLE locked = CreateFileW(transient.c_str(), GENERIC_READ,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+        CHECK(locked != INVALID_HANDLE_VALUE);
+        if (locked != INVALID_HANDLE_VALUE) {
+            std::thread release([locked] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(750));
+                CloseHandle(locked);
+            });
+            CHECK_MSG(ds::uninstallGame(layout, error), error);
+            release.join();
+        }
+        CHECK(!std::filesystem::exists(layout.dataRoot / L"build" / L"setup"));
+        CHECK(std::filesystem::exists(layout.savesDir / L"save.bin"));
+    }
+
+    {
+        TempDir temp;
+        const ds::Layout layout = installedLayout(temp.path);
+        populate(layout);
+        const auto external = temp.path / L"external";
+        const auto sentinel = external / L"save-sentinel.bin";
+        writeFilledFile(sentinel, 24);
+        const auto link = layout.gameDir / L"linked";
+        std::error_code ec;
+        std::filesystem::create_directory_symlink(external, link, ec);
+        if (ec) {
+            std::wcout << L"  (teste de link ignorado: privilégio indisponível: "
+                       << ds::toWide(ec.message()) << L")\n";
+        } else {
+            CHECK_MSG(ds::uninstallGame(layout, error), error);
+            CHECK(std::filesystem::exists(sentinel));
+            CHECK(std::filesystem::symlink_status(link, ec).type() ==
+                  std::filesystem::file_type::not_found);
+        }
+    }
+
+    {
+        TempDir temp;
+        ds::Layout layout = installedLayout(temp.path);
+        const auto external = temp.path / L"external-game";
+        writeFilledFile(external / L"sentinel.bin", 24);
+        std::error_code ec;
+        std::filesystem::create_directories(layout.dataRoot, ec);
+        std::filesystem::create_directory_symlink(external, layout.gameDir, ec);
+        if (ec) {
+            std::wcout << L"  (teste de raiz-link ignorada: privilégio indisponível: "
+                       << ds::toWide(ec.message()) << L")\n";
+        } else {
+            CHECK(!ds::uninstallGame(layout, error));
+            CHECK(std::filesystem::exists(external / L"sentinel.bin"));
+            CHECK(std::filesystem::is_symlink(layout.gameDir));
+        }
+    }
 }
 
 void testInstallProgress() {
@@ -414,6 +653,7 @@ int wmain() {
     run(L"Configuração", testConfig);
     run(L"Layout", testLayout);
     run(L"Pacote", testPackage);
+    run(L"Desinstalação", testUninstall);
     run(L"Progresso", testInstallProgress);
     run(L"Processos", testProcess);
     run(L"ISO", testIso);

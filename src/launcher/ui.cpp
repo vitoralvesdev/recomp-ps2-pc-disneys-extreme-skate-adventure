@@ -84,13 +84,14 @@ void fillEllipse(Gdiplus::Graphics& graphics, const Gdiplus::RectF& rect,
 void drawText(Gdiplus::Graphics& graphics, const std::wstring& text,
               const Gdiplus::Font& font, const Gdiplus::Color& textColor,
               const Gdiplus::RectF& rect, TextAlign align, bool wrap, bool ellipsis,
-              int lineLimit) {
+              int lineLimit, bool centerVertically) {
     if (text.empty()) return;
     Gdiplus::StringFormat format;
     format.SetAlignment(align == TextAlign::Left     ? Gdiplus::StringAlignmentNear
                         : align == TextAlign::Center ? Gdiplus::StringAlignmentCenter
                                                      : Gdiplus::StringAlignmentFar);
-    format.SetLineAlignment(Gdiplus::StringAlignmentNear);
+    format.SetLineAlignment(centerVertically ? Gdiplus::StringAlignmentCenter
+                                             : Gdiplus::StringAlignmentNear);
     if (!wrap) {
         format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
     }

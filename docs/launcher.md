@@ -1,10 +1,11 @@
 # Launcher nativo
 
 O launcher é o executável `Disney's Extreme Skate Adventure.exe` produzido a partir de
-`src/launcher`. Ele é uma aplicação Win32 nativa em C++20, com interface GDI+, e não depende de
-PowerShell, Electron, 7-Zip ou de um navegador para a instalação normal.
+`src/launcher`. Ele é uma aplicação Win32 nativa em C++20, com interface GDI+. A seleção da ISO,
+a validação, a extração e a interface não dependem de Electron, 7-Zip ou navegador; a preparação
+de assets em um checkout de desenvolvimento usa os scripts PowerShell descritos abaixo.
 
-Versão atual: **0.3.0**.
+Versão atual: **0.4.0**.
 
 ## O que ele faz
 
@@ -16,13 +17,16 @@ Versão atual: **0.3.0**.
    e extrai os arquivos para a pasta de dados. Não é necessário instalar o 7-Zip.
 4. Prepara os assets nativos e o runtime. Em um checkout de desenvolvimento, delega aos scripts
    existentes do projeto; em um pacote pré-compilado, valida os componentes já presentes.
-5. Verifica o pacote antes de liberar o botão **Jogar**.
+5. Verifica os componentes necessários antes de liberar o botão **Jogar**. A auditoria integral do
+   manifesto SHA-256 é executada na instalação e pelo comando `--verificar`.
 6. Abre o runtime, configura o renderer, a escala, o V-Sync, a pasta de saves e os diagnósticos.
 7. Mantém o launcher aberto enquanto o jogo roda e volta ao estado pronto quando o jogo fecha.
 
 A extração é incremental: arquivos já presentes só são ignorados quando tamanho e SHA-256
-coincidem com a ISO. Uma atualização do port pode substituir o launcher e o runtime sem pedir a
-ISO novamente, desde que a pasta de dados do jogo continue válida.
+coincidem com a ISO. Alterações no launcher não exigem reinstalar a ISO. Uma atualização do port
+também pode substituir o launcher e o runtime sem repetir a extração; depois de substituir o
+runtime ou os assets, execute `--atualizar-manifesto` para sincronizar a auditoria integral. A ISO
+só é necessária novamente ao instalar ou restaurar os dados extraídos.
 
 ## Primeira execução
 
@@ -76,9 +80,12 @@ estado (`analysis\launcher` no modo portátil ou `%LOCALAPPDATA%\HighSky\DisneyS
 no modo instalado). Cada linha registra SHA-256, tamanho e caminho lógico de um arquivo em
 `runtime/`, `game/` ou `assets/`; saves não entram no manifesto.
 
-Antes de liberar **Jogar**, o launcher confere cabeçalho, caminhos seguros, entradas duplicadas,
-arquivos ausentes ou extras, tamanhos e hashes. Arquivo vazio, manifesto ausente ou qualquer
-divergência mantém o pacote incompleto. Uma nova instalação regenera o manifesto.
+Antes de liberar **Jogar**, uma checagem rápida confere o runtime e as DLLs como PE x64, o
+cabeçalho e o SHA-256 do ELF, os arquivos essenciais, os módulos IOP, o catálogo de áudio e os
+assets nativos. Ela não recalcula os hashes de todo o manifesto. O comando `--verificar` faz a
+auditoria integral: caminhos seguros, entradas duplicadas, arquivos ausentes ou extras, tamanhos e
+SHA-256. Nessa auditoria, manifesto ausente ou qualquer divergência mantém o pacote inválido. Uma
+nova instalação regenera o manifesto.
 
 ## Preparação de assets e runtime
 
@@ -98,8 +105,11 @@ extração**:
 
 No modo instalado, uma cópia autorizada do Neversoft Multitool deve ficar em
 `%LOCALAPPDATA%\HighSky\DisneySkate\tools\neversoft-multitool-v1.3.4\cli` quando não há
-`tools\` no checkout fonte. Os intermediários do conversor .NET e as compilações de música
-ficam na pasta de dados gravável do usuário, não em `Arquivos de Programas`.
+`tools\` no checkout fonte. O cache do .NET e os temporários de build ficam em
+`logs\preparation` (`analysis\preparation` no modo portátil), fora de `build\setup`. Cada execução
+do conversor COL v8 usa um `NUGET_SCRATCH` próprio e um `TEMP`/`TMP` isolado para não herdar
+bloqueios compartilhados do Windows; o build usa `--disable-build-servers`. Se o build falhar,
+a mensagem aponta o `col8-build.log` da pasta de preparação.
 
 A validação dos dados de áudio extraídos pode ser executada sem criar ou substituir assets:
 
@@ -112,10 +122,18 @@ preparados em `assets\source\wad`. Se os assets e o catálogo de áudio já esti
 preflight e a conversão são ignorados. Um checkout completo continua necessário para operações de
 runtime não cobertas pelo pacote pré-compilado.
 
-Em 24/11/2026, o fluxo foi executado em uma pasta isolada, sem substituir os assets do projeto:
-393 efeitos VAG, 855 streams e 37 músicas resultaram em 1.285 entradas únicas, sem erros de
-conversão, arquivos ausentes ou músicas pendentes. Uma segunda execução da instalação musical
-apenas verificou os hashes das 37 faixas já presentes.
+Em 26/11/2026, após a desinstalação, o fluxo foi executado no projeto real: 393 efeitos VAG,
+855 streams e 37 músicas resultaram em 1.285 entradas únicas, sem erros de conversão, arquivos
+ausentes ou músicas pendentes. O launcher exige as 37 entradas `music/` no catálogo para não
+tratar uma preparação parcial como concluída. A preparação nativa compilou o conversor COL v8
+sem erros e converteu 272 arquivos de colisão.
+
+O ciclo completo foi exercitado pela interface em 26/11/2026: **Configurações → Desinstalar
+jogo → Sim** removeu os dados do jogo, os assets, `build\setup`, o manifesto e o estado de
+instalação; os saves permaneceram preservados e os hashes do runtime e do `config.ini` não
+mudaram. A ISO foi selecionada no diálogo nativo do Windows e **Instalar jogo** restaurou as
+1.285 entradas de áudio. A auditoria final `--verificar` conferiu 7.566 arquivos com tamanho e
+SHA-256, e o CTest Release passou 1/1 em 5,35 segundos.
 
 ## Configurações
 
@@ -126,6 +144,7 @@ apenas verificou os hashes das 37 faixas já presentes.
 | V-Sync nativo | Sincronização com o refresh | `DISNEY_NATIVE_VBLANK` |
 | Diagnóstico de travamentos | Relatórios de travamento | `DISNEY_HANG_DIAGNOSTICS` / `DISNEY_HANG_OUTPUT` |
 | Verificar atualizações | Consulta ao GitHub ao abrir | — |
+| Desinstalar jogo | Remove dados e assets gerados após confirmação; preserva dados do usuário | — |
 
 O runtime continua com resolução de janela livremente redimensionável; a escala altera a
 resolução interna do GS. As opções valem na próxima vez que o jogo for aberto.
@@ -133,26 +152,49 @@ resolução interna do GS. As opções valem na próxima vez que o jogo for aber
 O arquivo `config.ini` também aceita `source_root`, usado para apontar a um checkout do projeto
 quando o launcher está instalado separadamente. O caminho é salvo em UTF-8.
 
+### Desinstalação
+
+**Configurações → Desinstalar jogo** remove o conteúdo da pasta de dados do jogo, os assets
+gerados, os intermediários de `build\setup`, o manifesto e o registro de instalação. O botão fica
+bloqueado enquanto o jogo está aberto e a operação só começa depois de uma confirmação com **Não**
+como opção padrão.
+
+O launcher, o runtime, os saves, o `config.ini`, os logs, os relatórios e as ferramentas são
+preservados. No modo portátil, a raiz do jogo e `original\extracted\mc0` permanecem, e
+`assets\native` é recriada vazia para manter a detecção do layout. Links dentro da área removida são
+apagados sem seguir seus destinos. Falhas transitórias de acesso ou compartilhamento são
+repetidas por alguns segundos enquanto o Windows fecha os handles; um bloqueio permanente
+continua interrompendo a operação sem remover saves ou runtime. Ao terminar, é preciso
+selecionar e instalar a ISO novamente para restaurar o jogo.
+
 ## Linha de comando
 
 ```text
 "Disney's Extreme Skate Adventure.exe"                     abre o launcher
-"..." --verificar                                          verifica o pacote e retorna 0/2
+"..." --verificar                                          audita o pacote e retorna 0/2
+"..." --atualizar-manifesto                                 regera o manifesto do pacote atual
 "..." --iso <imagem> --verificar                           valida somente a ISO
 "..." --instalar <imagem>                                  instala sem interface
 "..." --diagnostico                                        sessão com diagnósticos
 "..." --versao                                             mostra a versão
 ```
 
-`--verificar` usa o mesmo conjunto de checagens da interface. Código de saída `0` significa
-pacote pronto; `2`, pacote incompleto ou imagem inválida.
+A interface usa uma checagem rápida dos componentes para abrir sem recalcular todos os hashes.
+`--verificar` usa essas mesmas checagens e também confere tamanho e SHA-256 de todos os arquivos
+do manifesto. Código de saída `0` significa pacote válido; `2`, falha na verificação ou imagem
+inválida. Após recompilar o runtime, execute `--atualizar-manifesto` para manter a auditoria
+integral sincronizada sem repetir a instalação.
 
 ## Atualizações
 
 A tela **Atualizações** consulta `releases/latest` do repositório oficial no GitHub por HTTPS
 com WinHTTP. Se houver uma versão mais nova, mostra as notas e permite abrir a página da versão ou
-baixar um instalador `.exe` publicado como asset. O download é salvo em `%TEMP%` e só é executado
-depois de uma confirmação; o launcher se fecha antes para permitir a substituição dos arquivos.
+baixar um instalador `.exe` publicado como asset. O nome esperado é derivado da tag do release
+(`v0.4.0` seleciona `DisneySkateSetup-0.4.0.exe`), e a URL precisa conter exatamente essa tag e
+esse asset no repositório oficial. O tamanho anunciado pelo release é conferido durante o download,
+limitado a 512 MiB, e o instalador precisa ter uma assinatura Authenticode confiável do Windows
+antes de ser executado. O download é salvo em `%TEMP%` e só é executado depois de uma confirmação;
+o launcher se fecha antes para permitir a substituição dos arquivos.
 
 Ao clicar em **Verificar novamente**, o launcher abre um modal com animação de carregamento. Se a
 versão instalada já for a mais recente ou não houver releases publicados, o modal muda para
@@ -180,7 +222,7 @@ Com o Inno Setup 6 instalado:
 .\scripts\Empacotar-Instalador.ps1
 ```
 
-O script compila o launcher e gera `dist\DisneySkateSetup-0.3.0.exe`, que instala o launcher, o
+O script compila o launcher e gera `dist\DisneySkateSetup-0.4.0.exe`, que instala o launcher, o
 runtime compilado, a documentação e os atalhos. O setup **não** inclui ISO, dados extraídos,
 assets gerados ou saves. A instalação é por usuário (`PrivilegesRequired=lowest`) e os dados
 ficam em `%LOCALAPPDATA%\HighSky\DisneySkate`.
@@ -207,7 +249,8 @@ ctest --test-dir build/launcher -C Release --output-on-failure
 ```
 
 Os testes cobrem JSON, comparação de versões, configuração, detecção de layout, verificação de
-pacote e manifesto, processos, leitura de ISO e extração. Para executar a integração com uma ISO local:
+pacote e manifesto, desinstalação segura e preservação de saves, processos, leitura de ISO e
+extração. Para executar a integração com uma ISO local:
 
 ```powershell
 $env:DISNEY_TEST_ISO = "C:\caminho\para\Disney's Extreme Skate Adventure (USA).iso"
@@ -220,13 +263,15 @@ compara os arquivos extraídos com os dados locais.
 
 ## Limitações atuais
 
-- O instalador Setup.exe (Inno Setup) ainda não é gerado neste repositório.
+- O instalador Setup.exe (Inno Setup) é gerado localmente por
+  `scripts\Empacotar-Instalador.ps1`, mas ainda não possui assinatura confiável para distribuição.
 - O download automático de ferramentas e dependências de compilação não foi implementado; o
   launcher chama o pipeline local quando ele existe.
 - Imagens BIN/CUE ainda não têm leitor próprio; use ISO.
 - A atualização de componentes baixa e executa um instalador publicado; não há atualização
-  diferencial nem verificação de assinatura do instalador.
-- O launcher não distribui ISO, dados do jogo, assets derivados, runtime compilado ou saves.
+  diferencial.
+- O repositório não distribui ISO, dados do jogo, assets derivados, runtime compilado ou saves.
+  O instalador local inclui o runtime compilado, mas nenhum dado extraído da ISO.
 
 ## Direitos
 
