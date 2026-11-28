@@ -248,10 +248,11 @@ O setup instala launcher, runtime, ferramentas, documentação, avisos e atalhos
 dados extraídos, assets gerados, saves, logs ou PDBs. A instalação é por usuário
 (`PrivilegesRequired=lowest`) e os dados ficam em `%LOCALAPPDATA%\HighSky\DisneySkate`.
 
-Para assinar, informe `-PfxPath` e defina a senha em `DISNEY_SIGNING_PASSWORD`. O Setup.exe de
-release ainda precisa de assinatura confiável antes de ser distribuído publicamente. Em ambientes
-que restringem a escrita em `HKCU`, use `-TestInstall` para gerar uma variante sem registro de
-desinstalador; ela não é um artefato de release.
+Para assinar, informe `-PfxPath` e defina a senha em `DISNEY_SIGNING_PASSWORD`. A Release 0.5.0 é
+distribuída sem assinatura Authenticode; por isso, a atualização automática do launcher não funciona
+e os usuários devem instalar as versões manualmente. Em ambientes que restringem a escrita em
+`HKCU`, use `-TestInstall` para gerar uma variante sem registro de desinstalador; ela não é um
+artefato de release.
 
 ## Compilar e testar
 
@@ -284,14 +285,14 @@ compara os arquivos extraídos com os dados locais.
 
 ## Limitações atuais
 
-- O Setup.exe local ainda não possui assinatura Authenticode confiável; o atualizador só executa
-  instaladores assinados.
+- A Release 0.5.0 não possui assinatura Authenticode confiável; o atualizador só executa
+  instaladores assinados, portanto a atualização é manual.
 - O pacote de distribuição incorpora as ferramentas de preparação. O fallback de desenvolvimento
   continua disponível quando alguma delas está ausente.
 - O runtime AOT completo não é reproduzível por um clone limpo; o release workflow consome um ZIP
   de runtime confiável com hash e commit verificados.
-- A revisão dos direitos de redistribuição do runtime AOT é obrigatória antes de publicar um
-  Release.
+- O responsável confirmou autorização para distribuir a Release 0.5.0. Versões futuras continuam
+  sujeitas à revisão dos direitos de redistribuição do runtime AOT.
 - Imagens BIN/CUE ainda não têm leitor próprio; use ISO.
 - A atualização de componentes baixa e executa um instalador publicado; não há atualização
   diferencial nem atualização automática do ZIP portátil.

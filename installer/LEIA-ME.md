@@ -4,7 +4,7 @@ Versão **0.5.0 do launcher**, em desenvolvimento. Este pacote não contém a IS
 
 ## Instalar
 
-1. Baixe `DisneySkateSetup-0.5.0.exe` na página [Releases do projeto](https://github.com/vitoralvesdev/recomp-ps2-pc-disneys-extreme-skate-adventure/releases), somente de uma publicação confiável e assinada.
+1. Baixe `DisneySkateSetup-0.5.0.exe` na página [Releases do projeto](https://github.com/vitoralvesdev/recomp-ps2-pc-disneys-extreme-skate-adventure/releases) e confira o SHA-256 em `SHA256SUMS.txt`.
 2. Abra o instalador e siga as etapas. Não é necessário instalar Python, .NET, CMake ou Visual Studio.
 3. Abra **Disney's Extreme Skate Adventure** e clique em **Selecionar ISO**.
 4. Escolha sua cópia original da versão americana NTSC-U de PlayStation 2.
@@ -13,11 +13,13 @@ Versão **0.5.0 do launcher**, em desenvolvimento. Este pacote não contém a IS
 
 A ISO é lida localmente e não é enviada para a internet. A instalação usa cerca de **2,3 GB** de espaço livre, além do pacote. A imagem esperada é a edição americana com `SLUS_206.07`; versões PAL ou de outra região são recusadas.
 
+Esta build não possui assinatura Authenticode. O Windows pode mostrar um aviso do SmartScreen; confira o SHA-256 no `SHA256SUMS.txt` antes de executar. A atualização automática não está disponível para a 0.5.0.
+
 ## Usar a versão portátil
 
 Como alternativa ao instalador, extraia todo `DisneySkate-0.5.0-portable.zip` para uma pasta e abra `Disney's Extreme Skate Adventure.exe` dentro de `DisneySkate-0.5.0`. Não execute o launcher sem extrair os arquivos de `runtime\`, `scripts\` e `tools\`.
 
-O ZIP portátil não é atualizado automaticamente sem uma assinatura Authenticode confiável. Para atualizar, baixe uma nova versão assinada ou substitua manualmente todos os arquivos do pacote, preservando a pasta de dados do jogo, os saves e a configuração.
+O ZIP portátil não é atualizado automaticamente. A versão 0.5.0 e outras versões sem assinatura Authenticode devem ser atualizadas manualmente, preservando a pasta de dados do jogo, os saves e a configuração.
 
 ## Requisitos
 

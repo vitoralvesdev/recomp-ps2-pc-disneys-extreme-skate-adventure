@@ -15,10 +15,10 @@ O repositório é o código-fonte do projeto. Binários de terceiros, builds loc
 
 ## O que um Release pode conter
 
-Somente após a revisão dos direitos do runtime AOT e da assinatura Authenticode:
+A Release 0.5.0 foi autorizada pelo responsável e é distribuída sem assinatura Authenticode. Cada Release pode conter:
 
-- `DisneySkateSetup-<versão>.exe`, assinado.
-- `DisneySkate-<versão>-portable.zip`, com o launcher assinado e todos os arquivos sob `DisneySkate-<versão>/`.
+- `DisneySkateSetup-<versão>.exe`, assinado quando houver certificado.
+- `DisneySkate-<versão>-portable.zip`, com o launcher e todos os arquivos sob `DisneySkate-<versão>/`.
 - `SHA256SUMS.txt`.
 
 O payload interno é limitado a:
@@ -70,23 +70,23 @@ Em 27/11/2026, a variante `-TestInstall` do pacote 0.5.0 foi instalada em uma pa
 
 O launcher instalado abriu na tela pronta; um evento de Enter iniciou `DisneySkateRuntime.exe`, que criou uma janela `GLFW30`, inicializou OpenGL 3.3 e áudio, executou por 12 segundos e foi encerrado pelo teste. A raiz de saves apontou para a pasta isolada, e o launcher também foi encerrado com código 0. O ZIP portátil foi extraído em outro diretório e passou pela auditoria de 108 arquivos, incluindo o marcador `launcher.portable`; o launcher detectado nessa extração usou o modo portátil.
 
-O instalador oficial não foi validado de ponta a ponta neste ambiente: a criação do registro de desinstalação em `HKCU` e a gravação de atalhos falharam com acesso negado. A variante `-TestInstall` omite somente o registro de desinstalação e os atalhos; portanto, ela valida o payload e o fluxo do jogo, mas não substitui o teste do instalador oficial em uma conta sem essas restrições. O pacote local permanece sem assinatura e sem Release publicado.
+O instalador oficial não foi validado de ponta a ponta neste ambiente: a criação do registro de desinstalação em `HKCU` e a gravação de atalhos falharam com acesso negado. A variante `-TestInstall` omite somente o registro de desinstalação e os atalhos; portanto, ela valida o payload e o fluxo do jogo, mas não substitui o teste do instalador oficial em uma conta sem essas restrições. A Release 0.5.0 foi publicada sem assinatura Authenticode e sem atualização automática.
 
 ## Assinatura e atualização
 
-O atualizador do launcher executa somente um Setup.exe com assinatura Authenticode confiável. Por isso:
+O atualizador do launcher executa somente um Setup.exe com assinatura Authenticode confiável. A Release 0.5.0 foi autorizada para distribuição sem assinatura, portanto:
 
-- Setup.exe de Release deve ser assinado antes da publicação;
-- o launcher dentro do ZIP portátil também deve ser assinado;
-- o ZIP em si não é um instalador executável e pode circular sem assinatura de arquivo, mas sua build portátil deve ser distribuída manualmente enquanto não houver uma atualização automática confiável;
+- o Setup e o launcher da 0.5.0 não são assinados e não oferecem atualização automática;
+- o Windows pode exibir aviso do SmartScreen; o usuário deve conferir `SHA256SUMS.txt` antes de executar;
+- versões futuras assinadas podem habilitar a atualização automática pelo launcher;
 - hashes não substituem assinatura.
 
-O workflow de publicação exige `publish=true`, uma tag existente no commit em build, a variável `RUNTIME_REDISTRIBUTION_APPROVED=yes` e os segredos `WINDOWS_SIGNING_PFX_BASE64` e `WINDOWS_SIGNING_PASSWORD`. A senha é lida de `DISNEY_SIGNING_PASSWORD` e não deve aparecer em logs ou arquivos.
+Para publicação automatizada e assinada, o workflow exige `publish=true`, uma tag existente no commit em build, a variável `RUNTIME_REDISTRIBUTION_APPROVED=yes` e os segredos `WINDOWS_SIGNING_PFX_BASE64` e `WINDOWS_SIGNING_PASSWORD`. A senha é lida de `DISNEY_SIGNING_PASSWORD` e não deve aparecer em logs ou arquivos. A 0.5.0 foi publicada manualmente pelo responsável, fora desse fluxo.
 
 ## Direitos e limites
 
 O repositório não possui licença global porque autoria e dependências ainda estão em revisão. A procedência e as licenças das DLLs de terceiros estão em [third-party-runtime/PROVENANCE.md](third-party-runtime/PROVENANCE.md); a das ferramentas de preparação está em [third-party-runtime/PACKAGING-TOOLS.md](third-party-runtime/PACKAGING-TOOLS.md).
 
-O runtime AOT contém código derivado do jogo original. A existência do código-fonte não prova autorização para redistribuí-lo. A revisão dos direitos é obrigatória antes de qualquer Release público. O pacote local pode ser validado pelo responsável sem publicar dados proprietários.
+O runtime AOT contém código derivado do jogo original. A existência do código-fonte não prova autorização para redistribuí-lo. O responsável confirmou autorização para a Release 0.5.0; essa confirmação não se estende automaticamente a versões futuras, que continuam sujeitas à revisão dos direitos. O pacote não publica dados proprietários extraídos do jogo.
 
 O port continua em desenvolvimento. A release deve registrar limitações reais de fases, carregamento, gráficos, áudio, controles e saves, sem afirmar compatibilidade não testada.
