@@ -2,6 +2,11 @@ if(NOT WIN32)
     return()
 endif()
 
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
 enable_language(RC)
 
 set(DISNEY_LAUNCHER_CORE_SOURCES

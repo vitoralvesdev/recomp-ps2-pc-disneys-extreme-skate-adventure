@@ -5,7 +5,7 @@ O launcher é o executável `Disney's Extreme Skate Adventure.exe` produzido a p
 a validação, a extração e a interface não dependem de Electron, 7-Zip ou navegador; a preparação
 de assets em um checkout de desenvolvimento usa os scripts PowerShell descritos abaixo.
 
-Versão atual: **0.4.0**.
+Versão atual: **0.5.0**.
 
 ## O que ele faz
 
@@ -51,7 +51,7 @@ O launcher detecta dois modos:
 
 | Modo | Quando é usado | Dados do jogo | Runtime | Assets | Saves | Logs |
 | --- | --- | --- | --- | --- | --- | --- |
-| Portátil | A pasta do executável contém `original\extracted` ou `runtime` + `assets\native` | `original\extracted` | `runtime` | `assets` | `original\extracted\mc0` | `analysis` |
+| Portátil | A pasta contém `original\extracted`, `runtime` + `assets\native` ou o marcador `launcher.portable` | `original\extracted` no checkout ou `game` no ZIP portátil | `runtime` | `assets` | `mc0` dentro da pasta do jogo | `analysis` |
 | Instalado | Executável instalado sem esses diretórios | `%LOCALAPPDATA%\HighSky\DisneySkate\game` | `runtime` ao lado do executável | `%LOCALAPPDATA%\HighSky\DisneySkate\assets` | `%LOCALAPPDATA%\HighSky\DisneySkate\saves\profile-1` | `%LOCALAPPDATA%\HighSky\DisneySkate\logs` |
 
 No modo instalado, os dados do usuário ficam fora da pasta de instalação para sobreviver a
@@ -89,27 +89,31 @@ nova instalação regenera o manifesto.
 
 ## Preparação de assets e runtime
 
-O launcher recebe um runtime já compilado, mas a geração dos assets ainda usa o pipeline de
-desenvolvimento (`scripts\Preparar-Dados-Nativos.ps1`, `scripts\Instalar-Audios-Originais.py` e
-`scripts\Recuperar-Trilha-ISO.ps1`).
-O instalador inclui os scripts e o código-fonte próprio desse pipeline; não inclui ISO, dados do
-jogo, áudio derivado, assets gerados, saves nem binários de terceiros. Não há configuração de
-pacotes de áudio: efeitos, vozes e músicas são convertidos dos dados da própria ISO selecionada.
+O launcher recebe um runtime já compilado e usa o pipeline próprio
+(`scripts\Preparar-Dados-Nativos.ps1`, `scripts\Instalar-Audios-Originais.py` e
+`scripts\Recuperar-Trilha-ISO.ps1`) para gerar assets a partir da ISO. O pacote de distribuição
+inclui esses scripts e ferramentas pré-compiladas em `tools\`: Python 3.12.10 incorporado,
+COL8 autocontido, recuperador de música nativo e Neversoft Multitool CLI v1.3.4. Não inclui ISO,
+dados extraídos, áudio derivado, assets gerados ou saves. Efeitos, vozes e músicas são convertidos
+dos dados da própria ISO selecionada.
+
 Quando os assets e o áudio ainda não estão prontos, o launcher executa o preflight **antes da
 extração**:
 
 - procura os scripts em `scripts\` (ou em `source_root`, definido no `config.ini`);
-- verifica Python 3.9–3.12, SDK .NET 9, Neversoft Multitool CLI v1.3.4, CMake 3.21+ e
-  Visual Studio 2022 com ferramentas C++;
+- se o conjunto de ferramentas estiver completo, usa os executáveis incorporados sem consultar
+  Python, .NET, CMake ou Visual Studio no `PATH`;
+- se faltar alguma ferramenta, mantém o fallback de desenvolvimento: Python 3.9–3.12, SDK .NET 9,
+  Neversoft Multitool CLI v1.3.4, CMake 3.21+ e Visual Studio 2022 com C++;
 - informa o arquivo ou dependência ausente e interrompe sem começar a extrair.
 
-No modo instalado, uma cópia autorizada do Neversoft Multitool deve ficar em
-`%LOCALAPPDATA%\HighSky\DisneySkate\tools\neversoft-multitool-v1.3.4\cli` quando não há
-`tools\` no checkout fonte. O cache do .NET e os temporários de build ficam em
-`logs\preparation` (`analysis\preparation` no modo portátil), fora de `build\setup`. Cada execução
-do conversor COL v8 usa um `NUGET_SCRATCH` próprio e um `TEMP`/`TMP` isolado para não herdar
-bloqueios compartilhados do Windows; o build usa `--disable-build-servers`. Se o build falhar,
-a mensagem aponta o `col8-build.log` da pasta de preparação.
+O launcher usa CRT estática. As DLLs da CRT do runtime ficam em `runtime\`. O cache do .NET e os
+temporários do fallback de desenvolvimento ficam em `logs\preparation`
+(`analysis\preparation` no modo portátil), fora de `build\setup`. Cada execução do fallback do
+conversor COL v8 usa um `NUGET_SCRATCH` próprio e um `TEMP`/`TMP` isolado para não herdar bloqueios
+compartilhados do Windows; o build usa `--disable-build-servers`. Se o build falhar, a mensagem
+aponta o `col8-build.log` da pasta de preparação. Uma instalação completa não passa por esse
+fallback.
 
 A validação dos dados de áudio extraídos pode ser executada sem criar ou substituir assets:
 
@@ -134,6 +138,15 @@ instalação; os saves permaneceram preservados e os hashes do runtime e do `con
 mudaram. A ISO foi selecionada no diálogo nativo do Windows e **Instalar jogo** restaurou as
 1.285 entradas de áudio. A auditoria final `--verificar` conferiu 7.566 arquivos com tamanho e
 SHA-256, e o CTest Release passou 1/1 em 5,35 segundos.
+
+Em 27/11/2026, o pacote 0.5.0 gerado para distribuição foi instalado em pastas isoladas, sem
+ferramentas de desenvolvimento no `PATH`. A instalação da ISO retornou 0, usando somente as
+ferramentas incluídas, e `--verificar` retornou 0 após auditar 7.569 arquivos. O launcher abriu
+na tela pronta e o runtime foi iniciado por Enter; a janela OpenGL permaneceu ativa por 12
+segundos antes de o teste fechá-la, e o launcher foi encerrado com código 0. A variante
+`-TestInstall` foi usada porque o ambiente
+restringe a escrita em `HKCU`; o instalador oficial ainda precisa do teste de registro e atalhos
+em uma conta sem essa restrição.
 
 ## Configurações
 
@@ -160,8 +173,9 @@ bloqueado enquanto o jogo está aberto e a operação só começa depois de uma 
 como opção padrão.
 
 O launcher, o runtime, os saves, o `config.ini`, os logs, os relatórios e as ferramentas são
-preservados. No modo portátil, a raiz do jogo e `original\extracted\mc0` permanecem, e
-`assets\native` é recriada vazia para manter a detecção do layout. Links dentro da área removida são
+preservados. No modo portátil, a raiz do jogo (incluindo `game\mc0` nesse layout) e
+`original\extracted\mc0` permanecem, e `assets\native` é recriada vazia para manter a detecção
+do layout. Links dentro da área removida são
 apagados sem seguir seus destinos. Falhas transitórias de acesso ou compartilhamento são
 repetidas por alguns segundos enquanto o Windows fecha os handles; um bloqueio permanente
 continua interrompendo a operação sem remover saves ou runtime. Ao terminar, é preciso
@@ -190,7 +204,7 @@ integral sincronizada sem repetir a instalação.
 A tela **Atualizações** consulta `releases/latest` do repositório oficial no GitHub por HTTPS
 com WinHTTP. Se houver uma versão mais nova, mostra as notas e permite abrir a página da versão ou
 baixar um instalador `.exe` publicado como asset. O nome esperado é derivado da tag do release
-(`v0.4.0` seleciona `DisneySkateSetup-0.4.0.exe`), e a URL precisa conter exatamente essa tag e
+(`v0.5.0` seleciona `DisneySkateSetup-0.5.0.exe`), e a URL precisa conter exatamente essa tag e
 esse asset no repositório oficial. O tamanho anunciado pelo release é conferido durante o download,
 limitado a 512 MiB, e o instalador precisa ter uma assinatura Authenticode confiável do Windows
 antes de ser executado. O download é salvo em `%TEMP%` e só é executado depois de uma confirmação;
@@ -216,21 +230,28 @@ versão, o layout, o estado do pacote e as últimas linhas do log. Nada é envia
 
 ## Instalador
 
-Com o Inno Setup 6 instalado:
+Com Visual Studio 2022 C++, .NET SDK 9, CMake e Inno Setup 6 instalados:
 
 ```powershell
 .\scripts\Empacotar-Instalador.ps1
 ```
 
-O script compila o launcher e gera `dist\DisneySkateSetup-0.4.0.exe`, que instala o launcher, o
-runtime compilado, a documentação e os atalhos. O setup **não** inclui ISO, dados extraídos,
-assets gerados ou saves. A instalação é por usuário (`PrivilegesRequired=lowest`) e os dados
-ficam em `%LOCALAPPDATA%\HighSky\DisneySkate`.
+O script compila o launcher e seus testes, publica o COL8 autocontido, compila o recuperador de
+música, baixa Python e Neversoft Multitool com hashes fixados, monta um staging limpo e valida
+allowlist, PE x64, hashes e versão. Gera:
 
-O instalador de release ainda precisa de assinatura de código antes de ser distribuído
-publicamente. Em ambientes que restringem a escrita em `HKCU` (como sandboxes de teste), o
-desinstalador não pode ser registrado; o pacote de arquivos em si pode ser validado com
-`/DLAUNCHER_TEST_INSTALL` no ISCC.
+- `dist\DisneySkateSetup-0.5.0.exe`;
+- `dist\DisneySkate-0.5.0-portable.zip`;
+- `dist\SHA256SUMS.txt`.
+
+O setup instala launcher, runtime, ferramentas, documentação, avisos e atalhos. **Não** inclui ISO,
+dados extraídos, assets gerados, saves, logs ou PDBs. A instalação é por usuário
+(`PrivilegesRequired=lowest`) e os dados ficam em `%LOCALAPPDATA%\HighSky\DisneySkate`.
+
+Para assinar, informe `-PfxPath` e defina a senha em `DISNEY_SIGNING_PASSWORD`. O Setup.exe de
+release ainda precisa de assinatura confiável antes de ser distribuído publicamente. Em ambientes
+que restringem a escrita em `HKCU`, use `-TestInstall` para gerar uma variante sem registro de
+desinstalador; ela não é um artefato de release.
 
 ## Compilar e testar
 
@@ -263,15 +284,18 @@ compara os arquivos extraídos com os dados locais.
 
 ## Limitações atuais
 
-- O instalador Setup.exe (Inno Setup) é gerado localmente por
-  `scripts\Empacotar-Instalador.ps1`, mas ainda não possui assinatura confiável para distribuição.
-- O download automático de ferramentas e dependências de compilação não foi implementado; o
-  launcher chama o pipeline local quando ele existe.
+- O Setup.exe local ainda não possui assinatura Authenticode confiável; o atualizador só executa
+  instaladores assinados.
+- O pacote de distribuição incorpora as ferramentas de preparação. O fallback de desenvolvimento
+  continua disponível quando alguma delas está ausente.
+- O runtime AOT completo não é reproduzível por um clone limpo; o release workflow consome um ZIP
+  de runtime confiável com hash e commit verificados.
+- A revisão dos direitos de redistribuição do runtime AOT é obrigatória antes de publicar um
+  Release.
 - Imagens BIN/CUE ainda não têm leitor próprio; use ISO.
 - A atualização de componentes baixa e executa um instalador publicado; não há atualização
-  diferencial.
-- O repositório não distribui ISO, dados do jogo, assets derivados, runtime compilado ou saves.
-  O instalador local inclui o runtime compilado, mas nenhum dado extraído da ISO.
+  diferencial nem atualização automática do ZIP portátil.
+- Nenhum pacote inclui ISO, dados extraídos, saves, logs ou capas soltas do jogo; a capa do launcher é incorporada ao executável.
 
 ## Direitos
 

@@ -400,6 +400,17 @@ public:
     bool eeCheckpointDue(uint32_t cycles = 32u) noexcept;
     [[noreturn]] void eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc);
 
+    void beginGuestCriticalSection();
+    void endGuestCriticalSection();
+
+    void captureCollisionCandidates(R5900Context *ctx,
+                                    uint8_t *rdram,
+                                    uint32_t source,
+                                    uint32_t count,
+                                    uint32_t frameStackPointer);
+    uint16_t collisionCandidateAt(R5900Context *ctx, uint32_t byteOffset) const;
+    void releaseCollisionCandidates(R5900Context *ctx);
+
     struct EeExitHandlerRegistration
     {
         uint32_t function = 0;
@@ -491,6 +502,33 @@ private:
         bool free = true;
     };
 
+    struct CollisionCandidateFrame
+    {
+        const R5900Context *context;
+        uint32_t stackPointer;
+
+        bool operator==(const CollisionCandidateFrame &other) const noexcept
+        {
+            return context == other.context && stackPointer == other.stackPointer;
+        }
+    };
+
+    struct CollisionCandidateFrameHash
+    {
+        size_t operator()(const CollisionCandidateFrame &frame) const noexcept
+        {
+            const size_t contextHash = std::hash<const R5900Context *>{}(frame.context);
+            const size_t stackHash = std::hash<uint32_t>{}(frame.stackPointer);
+            return contextHash ^ (stackHash + 0x9e3779b9u + (contextHash << 6u) + (contextHash >> 2u));
+        }
+    };
+
+    struct CollisionCandidateBuffer
+    {
+        std::vector<uint16_t> indices;
+        bool inUse = false;
+    };
+
     static uint32_t alignGuestHeapValue(uint32_t value, uint32_t alignment);
     static bool isGuestHeapAlignmentValid(uint32_t alignment);
     static uint32_t normalizeGuestHeapAlignment(uint32_t alignment);
@@ -528,6 +566,9 @@ private:
     VU1Interpreter m_vu1{VU1Interpreter::Unit::VU1};
     R5900Context m_cpuContext;
     std::unique_ptr<EeScheduler> m_eeScheduler;
+    uint32_t m_guestCriticalDepth = 0;
+    std::unordered_map<CollisionCandidateFrame, size_t, CollisionCandidateFrameHash> m_collisionCandidateFrames;
+    std::vector<CollisionCandidateBuffer> m_collisionCandidateBuffers;
     mutable std::mutex m_eeKernelStateMutex;
     std::unordered_map<int, std::vector<EeExitHandlerRegistration>> m_eeExitHandlers;
     std::unordered_map<uint32_t, uint32_t> m_eeSyscallOverrides;

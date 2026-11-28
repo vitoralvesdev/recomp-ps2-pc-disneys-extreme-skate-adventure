@@ -83,8 +83,41 @@ caminho efetivamente compilado em `DISNEY_ORIGINAL_IOP_LIBRARY`, e o CMake prese
 uma configuração manual deve usar a mesma variável. O projeto ainda precisa versionar ou obter de
 forma determinística as ferramentas permitidas e fornecer um
 gerador automatizado para as saídas derivadas da ISO antes que esse alvo possa ser considerado
-reproduzível. Não publique `original/`, `assets/`, `runtime/`, `build/`, `analysis/` ou `dist/`:
+reproduzível. Não versione `original/`, `assets/`, `runtime/`, `build/`, `analysis/` ou `dist/`:
 veja [DISTRIBUTION.md](DISTRIBUTION.md).
+
+## Pacote Windows para usuários
+
+O empacotador não tenta reconstruir o AOT ausente. Ele usa o runtime local ou consome um ZIP de
+runtime confiável:
+
+```powershell
+.\scripts\Empacotar-Runtime.ps1 -NoticesDirectory .\docs\third-party-runtime
+.\scripts\Empacotar-Instalador.ps1 -RuntimeZip .\dist\DisneySkateRuntime-0.5.0.zip -RuntimeSha256 <hash>
+```
+
+Sem `-RuntimeZip`, usa `runtime\` do ambiente atual e completa as três DLLs da CRT pelo
+Redistributable do Visual Studio. O launcher é linkado com CRT estática. Para compilar tudo do
+zero e testar o launcher:
+
+```powershell
+.\scripts\Empacotar-Instalador.ps1
+```
+
+São necessários Visual Studio 2022 com C++, CMake 3.21+, .NET SDK 9, Inno Setup 6 e acesso à
+NuGet oficial para restaurar os pacotes do runtime .NET autocontido. Python e Neversoft Multitool
+são baixados com SHA-256 fixado. O resultado fica em `dist\`; o staging validado fica em
+`build\package\DisneySkate-0.5.0`.
+
+Para validar novamente:
+
+```powershell
+.\scripts\Testar-Pacote-Distribuicao.ps1 -PackageRoot .\build\package\DisneySkate-0.5.0
+```
+
+O teste exige allowlist, hashes, PE x64, ausência de dados proprietários, versão do launcher e
+Python 3.12.10. Uma build limpa do AOT continua sendo um requisito separado para uma release
+pública reproduzível.
 
 ## Preparar dados locais
 

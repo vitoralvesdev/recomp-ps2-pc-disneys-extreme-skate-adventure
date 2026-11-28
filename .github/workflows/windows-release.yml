@@ -1,0 +1,139 @@
+name: Windows release package
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_zip_url:
+        description: "URL HTTPS do runtime ZIP confiavel"
+        required: true
+        type: string
+      runtime_sha256:
+        description: "SHA-256 do runtime ZIP"
+        required: true
+        type: string
+      publish:
+        description: "Publicar Release oficial assinada (exige revisao de direitos e certificado)"
+        default: false
+        type: boolean
+      release_tag:
+        description: "Tag existente a publicar; obrigatoria somente com publish=true"
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Validate trusted inputs
+        shell: pwsh
+        env:
+          RUNTIME_ZIP_URL: ${{ inputs.runtime_zip_url }}
+          RUNTIME_SHA256: ${{ inputs.runtime_sha256 }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH_RELEASE: ${{ inputs.publish }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNTIME_ZIP_URL -notmatch '^https://') { throw 'O runtime ZIP precisa usar HTTPS.' }
+          if ($env:RUNTIME_SHA256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'SHA-256 invalido para o runtime ZIP.' }
+          if ($env:PUBLISH_RELEASE -eq 'true') {
+            if (-not $env:RELEASE_TAG) { throw 'Informe release_tag para publicar.' }
+            $head = (& git rev-parse HEAD).Trim()
+            $tagCommit = (& git rev-parse "refs/tags/$env:RELEASE_TAG").Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -ne $tagCommit) { throw 'A tag precisa existir e apontar para o commit em build.' }
+          }
+
+      - name: Check publication prerequisites
+        if: inputs.publish
+        shell: pwsh
+        env:
+          RIGHTS_APPROVED: ${{ vars.RUNTIME_REDISTRIBUTION_APPROVED }}
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RIGHTS_APPROVED -ne 'yes') { throw 'Defina RUNTIME_REDISTRIBUTION_APPROVED=yes apos a revisao dos direitos do runtime AOT.' }
+          if (-not $env:SIGNING_PFX_BASE64) { throw 'O segredo WINDOWS_SIGNING_PFX_BASE64 e obrigatorio para publicar.' }
+          $certificate = Join-Path $env:RUNNER_TEMP 'windows-signing.pfx'
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          "DISNEY_SIGNING_PFX_PATH=$certificate" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Ensure Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6/ISCC.exe')
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar Inno Setup no runner.' }
+          }
+
+      - name: Build and validate package
+        shell: pwsh
+        env:
+          RUNTIME_ZIP_URL: ${{ inputs.runtime_zip_url }}
+          RUNTIME_SHA256: ${{ inputs.runtime_sha256 }}
+          PUBLISH_RELEASE: ${{ inputs.publish }}
+          SIGNING_PFX_PATH: ${{ env.DISNEY_SIGNING_PFX_PATH }}
+          SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+          DISNEY_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+          $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = '1'
+          $arguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/Empacotar-Instalador.ps1',
+            '-RuntimeZip', $env:RUNTIME_ZIP_URL, '-RuntimeSha256', $env:RUNTIME_SHA256
+          )
+          if ($env:PUBLISH_RELEASE -eq 'true') {
+            if (-not $env:SIGNING_PFX_PATH -or -not $env:SIGNING_PASSWORD) { throw 'Certificado ou senha de assinatura ausente.' }
+            $arguments += @('-PfxPath', $env:SIGNING_PFX_PATH)
+          }
+          & powershell @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'A geracao ou validacao do pacote falhou.' }
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: disney-skate-windows-package
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/DisneySkateSetup-*.exe
+            dist/DisneySkate-*-portable.zip
+            dist/SHA256SUMS.txt
+
+  publish:
+    if: inputs.publish
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: disney-skate-windows-package
+          path: release-artifacts
+
+      - name: Publish signed official release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            release-artifacts/DisneySkateSetup-*.exe
+            release-artifacts/DisneySkate-*-portable.zip
+            release-artifacts/SHA256SUMS.txt

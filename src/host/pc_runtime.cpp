@@ -1613,7 +1613,7 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
     // Every inter-function transfer is also a deterministic EE safe point.
     // Backward edges inside generated functions use eeCheckpointDue(), while
     // this charge bounds straight-line call chains that have no local loop.
-    if (m_eeScheduler && m_eeScheduler->checkpointDue(EeScheduler::kGuestDispatchCycles))
+    if (m_eeScheduler && eeCheckpointDue(EeScheduler::kGuestDispatchCycles))
     {
         return false;
     }
@@ -2618,7 +2618,90 @@ void PS2Runtime::postEeEvent(EeEvent event)
 
 bool PS2Runtime::eeCheckpointDue(uint32_t cycles) noexcept
 {
+    if (m_guestCriticalDepth != 0u)
+    {
+        if (m_eeScheduler)
+        {
+            m_eeScheduler->accountCycles(cycles);
+        }
+        return false;
+    }
     return m_eeScheduler->checkpointDue(cycles);
+}
+
+void PS2Runtime::beginGuestCriticalSection()
+{
+    ++m_guestCriticalDepth;
+}
+
+void PS2Runtime::endGuestCriticalSection()
+{
+    --m_guestCriticalDepth;
+}
+
+void PS2Runtime::captureCollisionCandidates(R5900Context *ctx,
+                                            uint8_t *rdram,
+                                            uint32_t source,
+                                            uint32_t count,
+                                            uint32_t frameStackPointer)
+{
+    const CollisionCandidateFrame frame{ctx, frameStackPointer};
+    auto frameIt = m_collisionCandidateFrames.find(frame);
+    size_t bufferIndex = 0u;
+    if (frameIt == m_collisionCandidateFrames.end())
+    {
+        for (size_t i = 0u; i < m_collisionCandidateBuffers.size(); ++i)
+        {
+            if (!m_collisionCandidateBuffers[i].inUse)
+            {
+                bufferIndex = i;
+                break;
+            }
+        }
+        if (bufferIndex == 0u &&
+            (m_collisionCandidateBuffers.empty() || m_collisionCandidateBuffers[0u].inUse))
+        {
+            bufferIndex = m_collisionCandidateBuffers.size();
+            m_collisionCandidateBuffers.emplace_back();
+        }
+        frameIt = m_collisionCandidateFrames.emplace(frame, bufferIndex).first;
+    }
+    else
+    {
+        bufferIndex = frameIt->second;
+    }
+
+    auto &buffer = m_collisionCandidateBuffers[bufferIndex];
+    buffer.inUse = true;
+    buffer.indices.resize(count);
+    if (count != 0u)
+    {
+        std::memcpy(buffer.indices.data(), rdram + source, static_cast<size_t>(count) * sizeof(uint16_t));
+    }
+}
+
+uint16_t PS2Runtime::collisionCandidateAt(R5900Context *ctx, uint32_t byteOffset) const
+{
+    const CollisionCandidateFrame frame{ctx, GPR_U32(ctx, 29)};
+    const auto frameIt = m_collisionCandidateFrames.find(frame);
+    if (frameIt == m_collisionCandidateFrames.end())
+    {
+        throw std::runtime_error("Collision candidate frame is not captured");
+    }
+    const auto &buffer = m_collisionCandidateBuffers[frameIt->second];
+    return buffer.indices.at(byteOffset / sizeof(uint16_t));
+}
+
+void PS2Runtime::releaseCollisionCandidates(R5900Context *ctx)
+{
+    const CollisionCandidateFrame frame{ctx, GPR_U32(ctx, 29)};
+    const auto frameIt = m_collisionCandidateFrames.find(frame);
+    if (frameIt == m_collisionCandidateFrames.end())
+    {
+        return;
+    }
+    m_collisionCandidateBuffers[frameIt->second].inUse = false;
+    m_collisionCandidateFrames.erase(frameIt);
 }
 
 [[noreturn]] void PS2Runtime::eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc)
@@ -2751,6 +2834,12 @@ void PS2Runtime::run()
     if(DisneyHang::enabled())DisneyHang::ramPointer.store(m_memory.getRDRAM());
     ps2::runtime::fatalErrorState().store(false, std::memory_order_relaxed);
     m_stopRequested.store(false, std::memory_order_relaxed);
+    m_guestCriticalDepth = 0u;
+    m_collisionCandidateFrames.clear();
+    for (auto &buffer : m_collisionCandidateBuffers)
+    {
+        buffer.inUse = false;
+    }
     ps2_stubs::resetSifState();
     resetIop();
     ps2_stubs::resetAudioStubState();

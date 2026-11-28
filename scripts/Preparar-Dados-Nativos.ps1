@@ -52,6 +52,8 @@ $values=1..4 | ForEach-Object{[float]::Parse($match.Groups[$_].Value,$culture)}
 # QB level coordinates mirror Z relative to the render/collision meshes.
 $spawn=@($values[0],$values[1],-$values[2],([Math]::PI-$values[3])) | ForEach-Object{$_.ToString('R',$culture)}
 [IO.File]::WriteAllText("$native\spawn.txt",($spawn -join ' '))
+$converterExecutable=Join-Path $ToolsDir 'col8-converter/Col8Converter.exe'
+$converterDll=''
 $oldDotnetHome=$env:DOTNET_CLI_HOME
 $oldNugetScratch=$env:NUGET_SCRATCH
 $oldTemp=$env:TEMP
@@ -65,25 +67,30 @@ $nugetScratch=Join-Path $AnalysisDir ('nuget-scratch-' + $runId)
 $processTemp=Join-Path $AnalysisDir ('col8-temp-' + $runId)
 $col8BuildLog=Join-Path $AnalysisDir 'col8-build.log'
 try {
-    $env:DOTNET_CLI_HOME=$dotnetStateRoot
-    $env:NUGET_SCRATCH=$nugetScratch
-    $env:TEMP=$processTemp
-    $env:TMP=$processTemp
-    $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'
-    $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
-    $env:DOTNET_NOLOGO='1'
-    $converterRoot=Join-Path $BuildDir 'col8-converter'
-    $converterSource=Join-Path $converterRoot 'source'
-    $converterOutput=Join-Path $converterRoot 'output'
-    [IO.Directory]::CreateDirectory($converterSource) | Out-Null
-    [IO.Directory]::CreateDirectory($converterOutput) | Out-Null
-    [IO.Directory]::CreateDirectory($env:DOTNET_CLI_HOME) | Out-Null
-    [IO.Directory]::CreateDirectory($env:NUGET_SCRATCH) | Out-Null
-    [IO.Directory]::CreateDirectory($processTemp) | Out-Null
-    Copy-Item -Path (Join-Path $ConverterDir '*.cs'),(Join-Path $ConverterDir 'Col8Converter.csproj'),(Join-Path $ConverterDir 'NuGet.Config') -Destination $converterSource -Force
-    Write-DisneyProgress 65 'Compilando o conversor de colisoes COL v8...'
-    & dotnet build $converterSource\Col8Converter.csproj -c Release --output $converterOutput --disable-build-servers *> $col8BuildLog
-    if($LASTEXITCODE -ne 0){throw "Falha ao compilar conversor COL v8. Confira $col8BuildLog"}
+    if(-not (Test-Path -LiteralPath $converterExecutable -PathType Leaf)){
+        $env:DOTNET_CLI_HOME=$dotnetStateRoot
+        $env:NUGET_SCRATCH=$nugetScratch
+        $env:TEMP=$processTemp
+        $env:TMP=$processTemp
+        $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
+        $env:DOTNET_NOLOGO='1'
+        $converterRoot=Join-Path $BuildDir 'col8-converter'
+        $converterSource=Join-Path $converterRoot 'source'
+        $converterOutput=Join-Path $converterRoot 'output'
+        [IO.Directory]::CreateDirectory($converterSource) | Out-Null
+        [IO.Directory]::CreateDirectory($converterOutput) | Out-Null
+        [IO.Directory]::CreateDirectory($env:DOTNET_CLI_HOME) | Out-Null
+        [IO.Directory]::CreateDirectory($env:NUGET_SCRATCH) | Out-Null
+        [IO.Directory]::CreateDirectory($processTemp) | Out-Null
+        Copy-Item -Path (Join-Path $ConverterDir '*.cs'),(Join-Path $ConverterDir 'Col8Converter.csproj'),(Join-Path $ConverterDir 'NuGet.Config') -Destination $converterSource -Force
+        Write-DisneyProgress 65 'Compilando o conversor de colisoes COL v8...'
+        & dotnet build $converterSource\Col8Converter.csproj -c Release --output $converterOutput --disable-build-servers *> $col8BuildLog
+        if($LASTEXITCODE -ne 0){throw "Falha ao compilar conversor COL v8. Confira $col8BuildLog"}
+        $converterDll=Join-Path $converterOutput 'Col8Converter.dll'
+    } else {
+        Write-DisneyProgress 65 'Usando o conversor de colisoes COL v8 incluido...'
+    }
     $collisionSources=Get-ChildItem -LiteralPath $source -Recurse -File -Filter '*.col.ps2' | Sort-Object FullName
     if(-not $collisionSources){throw 'Nenhum arquivo COL de colisao foi encontrado'}
     $conversionLog=Join-Path $AnalysisDir 'col8-conversion.log'
@@ -93,7 +100,8 @@ try {
         $levelName=[IO.Path]::GetFileNameWithoutExtension([IO.Path]::GetFileNameWithoutExtension($collisionSource.Name))
         $destination=Join-Path (Join-Path $native 'collision') (Join-Path $relativeDirectory "$levelName.dscollision")
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-        & dotnet "$converterOutput\Col8Converter.dll" $collisionSource.FullName $destination *>> $conversionLog
+        if($converterDll){& dotnet $converterDll $collisionSource.FullName $destination *>> $conversionLog}
+        else {& $converterExecutable $collisionSource.FullName $destination *>> $conversionLog}
         if($LASTEXITCODE -ne 0){throw "Falha ao converter colisao: $($collisionSource.FullName). Confira $conversionLog"}
         ++$converted
         if($converted % 10 -eq 0){Write-DisneyProgress (70 + [Math]::Min(20,[int](70*$converted/$collisionSources.Count))) "Colisoes convertidas: $converted/$($collisionSources.Count)"}

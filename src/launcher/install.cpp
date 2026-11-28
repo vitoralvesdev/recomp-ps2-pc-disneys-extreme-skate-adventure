@@ -278,14 +278,16 @@ bool runPowerShell(const fs::path& script, const std::vector<std::wstring>& argu
                       cancel, onEvent, step, percentStart, percentEnd, temporaryDirectory, error);
 }
 
-bool runPython(const fs::path& script, const std::vector<std::wstring>& arguments,
-               const fs::path& sourceRoot, const CancelToken& cancel,
+bool runPython(const fs::path& python, const fs::path& script,
+               const std::vector<std::wstring>& arguments, const fs::path& sourceRoot,
+               const CancelToken& cancel,
                const std::function<void(const InstallEvent&)>& onEvent, InstallStep step,
                int percentStart, int percentEnd, const fs::path& temporaryDirectory,
                std::wstring& error) {
     std::vector<std::wstring> commandArguments{script.wstring()};
     commandArguments.insert(commandArguments.end(), arguments.begin(), arguments.end());
-    return runCommand(quoteExecutableCommand(L"python", commandArguments), sourceRoot, cancel,
+    const std::wstring executable = python.empty() ? L"python" : python.wstring();
+    return runCommand(quoteExecutableCommand(executable, commandArguments), sourceRoot, cancel,
                       onEvent, step, percentStart, percentEnd, temporaryDirectory, error);
 }
 
@@ -363,11 +365,41 @@ bool checkCommand(const std::wstring& command, const fs::path& sourceRoot,
     return true;
 }
 
+bool hasNeversoftMultitool(const fs::path& toolsDirectory) {
+    const fs::path toolRoot = toolsDirectory / L"neversoft-multitool-v1.3.4" / L"cli";
+    std::error_code ec;
+    if (!fs::is_directory(toolRoot, ec)) return false;
+    for (fs::recursive_directory_iterator it(toolRoot,
+                                             fs::directory_options::skip_permission_denied, ec), end;
+         it != end && !ec; it.increment(ec)) {
+        if (it->is_regular_file(ec) &&
+            iequals(it->path().filename().wstring(), L"NeversoftMultitool.exe")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool bundledToolsReady(const fs::path& toolsDirectory) {
+    return fileExists(toolsDirectory / L"python" / L"python.exe") &&
+           fileExists(toolsDirectory / L"col8-converter" / L"Col8Converter.exe") &&
+           fileExists(toolsDirectory / L"music-recovery" / L"DisneyMusicRecover.exe") &&
+           hasNeversoftMultitool(toolsDirectory);
+}
+
 bool checkAssetsDependencies(const fs::path& sourceRoot, const fs::path& toolsDirectory,
                              std::wstring& error) {
+    const fs::path bundledPython = toolsDirectory / L"python" / L"python.exe";
+    const fs::path bundledCol8 = toolsDirectory / L"col8-converter" / L"Col8Converter.exe";
+    const fs::path bundledMusic = toolsDirectory / L"music-recovery" / L"DisneyMusicRecover.exe";
+    if (bundledToolsReady(toolsDirectory)) return true;
+
     std::wstring output;
     std::wstring commandError;
-    if (!checkCommand(L"python --version", sourceRoot, output, commandError)) {
+    const std::wstring pythonCommand = fileExists(bundledPython)
+        ? quoteExecutableCommand(bundledPython.wstring(), {L"--version"})
+        : L"python --version";
+    if (!checkCommand(pythonCommand, sourceRoot, output, commandError)) {
         error = L"Python 3.9 a 3.12 não foi encontrado. Instale o Python 3 e marque a opção "
                 L"\"Add Python to PATH\". " + commandError;
         return false;
@@ -385,31 +417,22 @@ bool checkAssetsDependencies(const fs::path& sourceRoot, const fs::path& toolsDi
                 trim(output) + L".";
         return false;
     }
-    if (!checkCommand(L"dotnet --list-sdks", sourceRoot, output, commandError) ||
-        output.find(L"9.") == std::wstring::npos) {
+    if (!fileExists(bundledCol8) &&
+        (!checkCommand(L"dotnet --list-sdks", sourceRoot, output, commandError) ||
+         output.find(L"9.") == std::wstring::npos)) {
         error = L"SDK .NET 9 não foi encontrado. Instale o SDK .NET 9 para compilar o conversor "
                 L"de colisões. " + commandError;
         return false;
     }
-    const fs::path toolRoot = toolsDirectory / L"neversoft-multitool-v1.3.4" / L"cli";
-    std::error_code ec;
-    bool toolFound = false;
-    if (fs::is_directory(toolRoot, ec)) {
-        for (fs::recursive_directory_iterator it(toolRoot, fs::directory_options::skip_permission_denied, ec), end;
-             it != end && !ec; it.increment(ec)) {
-            if (it->is_regular_file(ec) && iequals(it->path().filename().wstring(),
-                                                    L"NeversoftMultitool.exe")) {
-                toolFound = true;
-                break;
-            }
-        }
-    }
-    if (!toolFound) {
+    if (!hasNeversoftMultitool(toolsDirectory)) {
+        const fs::path toolRoot = toolsDirectory / L"neversoft-multitool-v1.3.4" / L"cli";
         error = L"Neversoft Multitool CLI v1.3.4 ausente em " + toolRoot.wstring() +
                 L". Coloque uma cópia autorizada da ferramenta nessa pasta; consulte "
-                L"docs/teste-nativo.md. O instalador não distribui binários de terceiros.";
+                L"docs/teste-nativo.md.";
         return false;
     }
+    if (fileExists(bundledMusic)) return true;
+
     const std::wstring cmakeScript =
         L"$ErrorActionPreference='Stop'; Import-Module " +
         powerShellLiteral((sourceRoot / L"scripts" / L"Build.Common.psm1").wstring()) +
@@ -450,24 +473,29 @@ bool checkAssetsDependencies(const fs::path& sourceRoot, const fs::path& toolsDi
     return true;
 }
 
-bool preflightAssets(const fs::path& sourceRoot, const fs::path& toolsDirectory,
-                     const CancelToken& cancel,
-                     const std::function<void(const InstallEvent&)>& onEvent,
-                     std::wstring& error) {
-    if (!requireSourceFiles(
-            sourceRoot,
-            {L"scripts\\Build.Common.psm1", L"scripts\\Preparar-Dados-Nativos.ps1",
-             L"scripts\\Instalar-Audios-Originais.py", L"scripts\\Recuperar-Trilha-ISO.ps1",
-             L"scripts\\music-recovery\\CMakeLists.txt",
-             L"scripts\\music-recovery\\install_music.py",
+bool requirePreparationFiles(const fs::path& sourceRoot, const fs::path& toolsDirectory,
+                             std::wstring& error) {
+    std::vector<std::wstring> required{
+        L"scripts\\Build.Common.psm1", L"scripts\\Preparar-Dados-Nativos.ps1",
+        L"scripts\\Instalar-Audios-Originais.py", L"scripts\\Recuperar-Trilha-ISO.ps1",
+        L"scripts\\music-recovery\\install_music.py"};
+    if (!bundledToolsReady(toolsDirectory)) {
+        required.insert(required.end(),
+            {L"scripts\\music-recovery\\CMakeLists.txt",
              L"scripts\\music-recovery\\recover_music.cpp",
              L"tools-src\\col8-converter\\Col8Converter.csproj",
              L"tools-src\\col8-converter\\Program.cs", L"tools-src\\col8-converter\\ColFile.cs",
              L"tools-src\\col8-converter\\ColFace.cs", L"tools-src\\col8-converter\\ColObject.cs",
-             L"tools-src\\col8-converter\\ColScene.cs", L"tools-src\\col8-converter\\NuGet.Config"},
-            error)) {
-        return false;
+             L"tools-src\\col8-converter\\ColScene.cs", L"tools-src\\col8-converter\\NuGet.Config"});
     }
+    return requireSourceFiles(sourceRoot, required, error);
+}
+
+bool preflightAssets(const fs::path& sourceRoot, const fs::path& toolsDirectory,
+                     const CancelToken& cancel,
+                     const std::function<void(const InstallEvent&)>& onEvent,
+                     std::wstring& error) {
+    if (!requirePreparationFiles(sourceRoot, toolsDirectory, error)) return false;
     if (!checkAssetsDependencies(sourceRoot, toolsDirectory, error)) return false;
     if (cancel.cancelled()) {
         error = L"Operação cancelada.";
@@ -581,6 +609,8 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
 
     const fs::path sourceRoot = preparationSourceRoot(layout, settings);
     const fs::path toolsDirectory = preparationToolsDirectory(layout, sourceRoot);
+    const fs::path bundledPython = toolsDirectory / L"python" / L"python.exe";
+    const fs::path pythonExecutable = fileExists(bundledPython) ? bundledPython : fs::path{};
     std::wstring audioDetail;
     const bool assetsReady = layout.hasAssets() &&
                              fileExists(layout.assetsDir / L"native" / L"spawn.txt") &&
@@ -689,18 +719,7 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
         emit(onEvent, InstallStep::Assets, StepState::Skipped, 100,
              L"Assets e áudio já preparados.");
     } else {
-        if (!requireSourceFiles(
-                sourceRoot,
-                {L"scripts\\Build.Common.psm1", L"scripts\\Preparar-Dados-Nativos.ps1",
-                 L"scripts\\Instalar-Audios-Originais.py", L"scripts\\Recuperar-Trilha-ISO.ps1",
-                 L"scripts\\music-recovery\\CMakeLists.txt",
-                 L"scripts\\music-recovery\\install_music.py",
-                 L"scripts\\music-recovery\\recover_music.cpp",
-                 L"tools-src\\col8-converter\\Col8Converter.csproj",
-                 L"tools-src\\col8-converter\\Program.cs", L"tools-src\\col8-converter\\ColFile.cs",
-                 L"tools-src\\col8-converter\\ColFace.cs", L"tools-src\\col8-converter\\ColObject.cs",
-                 L"tools-src\\col8-converter\\ColScene.cs", L"tools-src\\col8-converter\\NuGet.Config"},
-                result.message)) {
+        if (!requirePreparationFiles(sourceRoot, toolsDirectory, result.message)) {
             logError(result.message);
             emit(onEvent, InstallStep::Assets, StepState::Failed, 0, result.message);
             return result;
@@ -727,7 +746,8 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
         }
         emit(onEvent, InstallStep::Assets, StepState::Running, 58,
              L"Convertendo efeitos, vozes e catálogo de áudio...");
-        if (!runPython(sourceRoot / L"scripts" / L"Instalar-Audios-Originais.py",
+        if (!runPython(pythonExecutable,
+                       sourceRoot / L"scripts" / L"Instalar-Audios-Originais.py",
                        {layout.dataRoot.wstring(), L"--game-dir", layout.gameDir.wstring()},
                        sourceRoot, cancel, onEvent, InstallStep::Assets, 58, 85,
                        installTempDir, scriptError)) {
@@ -746,7 +766,9 @@ InstallResult performInstall(const Layout& layout, Settings& settings,
         if (!runPowerShell(sourceRoot / L"scripts" / L"Recuperar-Trilha-ISO.ps1",
                            {L"-Root", layout.dataRoot.wstring(), L"-GameDir",
                             layout.gameDir.wstring(), L"-BuildDir",
-                            (buildDir / L"music-recovery").wstring()},
+                            (buildDir / L"music-recovery").wstring(), L"-ToolsDir",
+                            toolsDirectory.wstring(), L"-Python",
+                            pythonExecutable.wstring()},
                            sourceRoot, cancel, onEvent, InstallStep::Assets, 87, 100,
                            installTempDir, scriptError)) {
             if (cancel.cancelled()) {
